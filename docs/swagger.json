@@ -1,0 +1,232 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "用户注册与登录接口",
+        "title": "多角色订单系统 API",
+        "contact": {},
+        "version": "1.0"
+    },
+    "host": "localhost:8888",
+    "basePath": "/api",
+    "paths": {
+        "/login": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "用户"
+                ],
+                "summary": "用户登录",
+                "parameters": [
+                    {
+                        "description": "登录信息",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/user.loginRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/user.loginResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/me": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "用户"
+                ],
+                "summary": "获取当前登录用户",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/register": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "用户"
+                ],
+                "summary": "用户注册",
+                "parameters": [
+                    {
+                        "description": "注册信息",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/user.registerRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/user.User"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "user.Role": {
+            "type": "string",
+            "enum": [
+                "admin",
+                "user",
+                "ops"
+            ],
+            "x-enum-varnames": [
+                "RoleAdmin",
+                "RoleUser",
+                "RoleOps"
+            ]
+        },
+        "user.User": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "description": "CreatedAt 创建时间。",
+                    "type": "string"
+                },
+                "id": {
+                    "description": "ID 主键，自增。",
+                    "type": "integer"
+                },
+                "name": {
+                    "description": "Name 登录用户名，全局唯一。",
+                    "type": "string"
+                },
+                "role": {
+                    "description": "Role 用户角色。",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/user.Role"
+                        }
+                    ]
+                },
+                "updated_at": {
+                    "description": "UpdatedAt 最后更新时间。",
+                    "type": "string"
+                }
+            }
+        },
+        "user.loginRequest": {
+            "type": "object",
+            "required": [
+                "password",
+                "username"
+            ],
+            "properties": {
+                "password": {
+                    "type": "string"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "user.loginResponse": {
+            "type": "object",
+            "properties": {
+                "token": {
+                    "description": "Token Bearer 访问令牌，后续请求需放入 Authorization 头。",
+                    "type": "string"
+                },
+                "user": {
+                    "description": "User 登录成功的用户信息（不含密码哈希）。",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/user.User"
+                        }
+                    ]
+                }
+            }
+        },
+        "user.registerRequest": {
+            "type": "object",
+            "required": [
+                "password",
+                "username"
+            ],
+            "properties": {
+                "password": {
+                    "type": "string"
+                },
+                "role": {
+                    "type": "string"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        }
+    },
+    "securityDefinitions": {
+        "BearerAuth": {
+            "type": "apiKey",
+            "name": "Authorization",
+            "in": "header"
+        }
+    }
+}
