@@ -19,24 +19,28 @@ func NewRepository(db *gorm.DB) *Repo {
 }
 
 // Create 写入一条用户记录。
+// 用户名冲突返回 ErrUsernameExists；gorm 的错误在本层翻译，不再向上泄露。
 func (r *Repo) Create(ctx context.Context, user *User) error {
-	err := gorm.G[User](r.db).Create(ctx, user)
-	if err != nil {
+	if err := gorm.G[User](r.db).Create(ctx, user); err != nil {
 		if errors.Is(err, gorm.ErrDuplicatedKey) {
-			return errors.New("用户名已存在")
+			return ErrUsernameExists
 		}
-		return fmt.Errorf("failed to create user: %w", err)
+		return fmt.Errorf("创建用户失败: %w", err)
 	}
 	return nil
 }
 
 // FindByName 按用户名查询用户。
+// 用户不存在时返回 ErrUserNotFound，便于调用方与数据库故障区分处理。
 func (r *Repo) FindByName(ctx context.Context, name string) (*User, error) {
 	user, err := gorm.G[User](r.db).
 		Where("name = ?", name).
 		First(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to find user by name: %w", err)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrUserNotFound
+		}
+		return nil, fmt.Errorf("按用户名查询用户失败: %w", err)
 	}
 	return &user, nil
 }

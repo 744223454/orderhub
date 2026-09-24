@@ -1,6 +1,7 @@
 package user
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -24,6 +25,27 @@ func NewHandler(service *Service, issue TokenIssuer) *Handler {
 	}
 }
 
+// respondUserError 把服务层错误映射为 HTTP 响应。
+//
+// 业务错误按其语义返回对应状态码与文案；未识别的错误一律视为技术错误，
+// 返回 500 通用文案并追加到 gin 的错误链（由日志中间件记录），
+// 避免把 SQL 报错、连接信息等内部细节暴露给调用方。
+func respondUserError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, ErrUsernameExists):
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+	case errors.Is(err, ErrInvalidCredentials):
+		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+	case errors.Is(err, ErrInvalidRole),
+		errors.Is(err, ErrInvalidUsername),
+		errors.Is(err, ErrInvalidPassword):
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	default:
+		_ = c.Error(err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "服务器内部错误"})
+	}
+}
+
 type registerRequest struct {
 	Username string `json:"username" binding:"required"`
 	Password string `json:"password" binding:"required"`
@@ -38,11 +60,13 @@ type registerRequest struct {
 // @Param request body registerRequest true "注册信息"
 // @Success 200 {object} User
 // @Failure 400 {object} map[string]string
+// @Failure 409 {object} map[string]string
 // @Router /register [post]
 func (h *Handler) Register(c *gin.Context) {
 	var req registerRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		// 不透传 gin 的绑定错误（英文内部字段名），对调用方无意义。
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数不合法"})
 		return
 	}
 
@@ -55,7 +79,7 @@ func (h *Handler) Register(c *gin.Context) {
 
 	created, err := h.service.Register(c.Request.Context(), req.Username, req.Password, RoleUser)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		respondUserError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, created)
@@ -81,24 +105,25 @@ type loginResponse struct {
 // @Produce json
 // @Param request body loginRequest true "登录信息"
 // @Success 200 {object} loginResponse
+// @Failure 400 {object} map[string]string
 // @Failure 401 {object} map[string]string
 // @Router /login [post]
 func (h *Handler) Login(c *gin.Context) {
 	var req loginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数不合法"})
 		return
 	}
 
 	u, err := h.service.Login(c.Request.Context(), req.Username, req.Password)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		respondUserError(c, err)
 		return
 	}
 
 	token, err := h.issue(u)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "签发令牌失败"})
+		respondUserError(c, err)
 		return
 	}
 
