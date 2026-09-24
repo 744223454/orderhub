@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"errors"
 	"fmt"
 	"time"
 
@@ -12,9 +11,6 @@ import (
 // tokenIssuer 是签发者标识。签发与校验共用同一常量，
 // 避免两处分别写死后校验必然失败。
 const tokenIssuer = "my-modular-app"
-
-// ErrInvalidToken 表示令牌未通过校验（格式错误、签名无效或已过期等）。
-var ErrInvalidToken = errors.New("无效的令牌")
 
 // GenerateToken 使用 HS256 为指定用户签发访问令牌。
 func GenerateToken(u *user.User, secret string, expire time.Duration) (string, error) {

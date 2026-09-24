@@ -1,6 +1,8 @@
 package user
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -34,5 +36,66 @@ func TestValidateCredentialsCountsRunes(t *testing.T) {
 				t.Errorf("期望校验通过，实际报错: %v", err)
 			}
 		})
+	}
+}
+
+// TestValidateCredentialsReturnsSentinel 验证长度校验错误包装了哨兵错误，
+// 使 handler 层能将其映射为 400，而不是落进「未识别错误 → 500」的分支。
+func TestValidateCredentialsReturnsSentinel(t *testing.T) {
+	if err := validateCredentials("", "pass1234"); !errors.Is(err, ErrInvalidUsername) {
+		t.Errorf("用户名长度非法应包装 ErrInvalidUsername，实际: %v", err)
+	}
+	if err := validateCredentials("alice", "short"); !errors.Is(err, ErrInvalidPassword) {
+		t.Errorf("密码长度非法应包装 ErrInvalidPassword，实际: %v", err)
+	}
+}
+
+// TestServiceRegisterAndLogin 覆盖注册与登录的正常路径及凭据错误路径。
+func TestServiceRegisterAndLogin(t *testing.T) {
+	service := setupTestService(t)
+	ctx := context.Background()
+
+	if _, err := service.Register(ctx, "alice", "pass1234", RoleUser); err != nil {
+		t.Fatalf("注册应成功，实际报错: %v", err)
+	}
+
+	if _, err := service.Login(ctx, "alice", "pass1234"); err != nil {
+		t.Fatalf("正确凭据应登录成功，实际报错: %v", err)
+	}
+
+	// 密码错误与用户不存在对外必须呈现同一个错误，避免账号枚举。
+	if _, err := service.Login(ctx, "alice", "wrongpass"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Errorf("密码错误应返回 ErrInvalidCredentials，实际: %v", err)
+	}
+	if _, err := service.Login(ctx, "nobody", "pass1234"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Errorf("用户不存在对外也应返回 ErrInvalidCredentials，实际: %v", err)
+	}
+}
+
+// TestServiceRegisterDuplicate 验证重复注册返回 ErrUsernameExists（handler 据此返回 409）。
+func TestServiceRegisterDuplicate(t *testing.T) {
+	service := setupTestService(t)
+	ctx := context.Background()
+
+	if _, err := service.Register(ctx, "bob", "pass1234", RoleUser); err != nil {
+		t.Fatalf("首次注册应成功，实际报错: %v", err)
+	}
+	if _, err := service.Register(ctx, "bob", "pass1234", RoleUser); !errors.Is(err, ErrUsernameExists) {
+		t.Errorf("重复注册应返回 ErrUsernameExists，实际: %v", err)
+	}
+}
+
+// TestServiceLoginDoesNotDisguiseDatabaseError 锁定本次修复：
+// 数据库故障必须如实上抛，不能被伪装成「用户名或密码错误」，
+// 否则系统异常会被淹没在正常的认证失败里，排查时无从下手。
+func TestServiceLoginDoesNotDisguiseDatabaseError(t *testing.T) {
+	service := setupTestService(t)
+
+	_, err := service.Login(canceledCtx(), "alice", "pass1234")
+	if err == nil {
+		t.Fatal("数据库不可用时登录应返回错误")
+	}
+	if errors.Is(err, ErrInvalidCredentials) {
+		t.Error("数据库故障被伪装成了认证失败")
 	}
 }

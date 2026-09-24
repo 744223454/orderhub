@@ -1,7 +1,7 @@
 {
     "swagger": "2.0",
     "info": {
-        "description": "用户注册与登录接口",
+        "description": "多角色订单系统后端接口：用户注册、登录与 JWT 认证，以及订单的下单、支付、发货、完成与退款。",
         "title": "多角色订单系统 API",
         "contact": {},
         "version": "1.0"
@@ -9,6 +9,222 @@
     "host": "localhost:8888",
     "basePath": "/api",
     "paths": {
+        "/admin/orders": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "订单管理"
+                ],
+                "summary": "查询全部订单（仅运营/管理员）",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/internal_order.Order"
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/orders/{id}/complete": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "订单管理"
+                ],
+                "summary": "完成订单（shipped → completed，仅运营/管理员）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "订单 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_order.Order"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/orders/{id}/refund": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "订单管理"
+                ],
+                "summary": "退款（paid/shipped → refunded，仅运营/管理员）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "订单 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_order.Order"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/orders/{id}/ship": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "订单管理"
+                ],
+                "summary": "发货（paid → shipped，仅运营/管理员）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "订单 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_order.Order"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/login": {
             "post": {
                 "consumes": [
@@ -28,7 +244,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/user.loginRequest"
+                            "$ref": "#/definitions/internal_user.loginRequest"
                         }
                     }
                 ],
@@ -36,7 +252,16 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/user.loginResponse"
+                            "$ref": "#/definitions/internal_user.loginResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
                         }
                     },
                     "401": {
@@ -85,6 +310,165 @@
                 }
             }
         },
+        "/orders": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "订单"
+                ],
+                "summary": "查询自己的订单列表",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/internal_order.Order"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "订单"
+                ],
+                "summary": "创建订单（登录用户）",
+                "parameters": [
+                    {
+                        "description": "下单信息",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_order.createOrderRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_order.Order"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/orders/{id}/pay": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "订单"
+                ],
+                "summary": "支付自己的订单（pending → paid）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "订单 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_order.Order"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/register": {
             "post": {
                 "consumes": [
@@ -104,7 +488,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/user.registerRequest"
+                            "$ref": "#/definitions/internal_user.registerRequest"
                         }
                     }
                 ],
@@ -112,11 +496,20 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/user.User"
+                            "$ref": "#/definitions/internal_user.User"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -129,7 +522,78 @@
         }
     },
     "definitions": {
-        "user.Role": {
+        "internal_order.Order": {
+            "type": "object",
+            "properties": {
+                "amount": {
+                    "description": "Amount 订单金额，单位为分（用整数避免浮点精度问题，前端展示时再除以 100）。",
+                    "type": "integer"
+                },
+                "created_at": {
+                    "description": "CreatedAt 创建时间。",
+                    "type": "string"
+                },
+                "id": {
+                    "description": "ID 主键，自增。",
+                    "type": "integer"
+                },
+                "product_name": {
+                    "description": "ProductName 商品名称。",
+                    "type": "string"
+                },
+                "status": {
+                    "description": "Status 订单状态。",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/internal_order.Status"
+                        }
+                    ]
+                },
+                "updated_at": {
+                    "description": "UpdatedAt 最后更新时间。",
+                    "type": "string"
+                },
+                "user_id": {
+                    "description": "UserID 下单用户 ID。",
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_order.Status": {
+            "type": "string",
+            "enum": [
+                "pending",
+                "paid",
+                "shipped",
+                "completed",
+                "refunded"
+            ],
+            "x-enum-varnames": [
+                "StatusPending",
+                "StatusPaid",
+                "StatusShipped",
+                "StatusCompleted",
+                "StatusRefunded"
+            ]
+        },
+        "internal_order.createOrderRequest": {
+            "type": "object",
+            "required": [
+                "amount",
+                "product_name"
+            ],
+            "properties": {
+                "amount": {
+                    "description": "Amount 订单金额，单位为分。",
+                    "type": "integer"
+                },
+                "product_name": {
+                    "description": "ProductName 商品名称。",
+                    "type": "string"
+                }
+            }
+        },
+        "internal_user.Role": {
             "type": "string",
             "enum": [
                 "admin",
@@ -142,7 +606,7 @@
                 "RoleOps"
             ]
         },
-        "user.User": {
+        "internal_user.User": {
             "type": "object",
             "properties": {
                 "created_at": {
@@ -161,7 +625,7 @@
                     "description": "Role 用户角色。",
                     "allOf": [
                         {
-                            "$ref": "#/definitions/user.Role"
+                            "$ref": "#/definitions/internal_user.Role"
                         }
                     ]
                 },
@@ -171,7 +635,7 @@
                 }
             }
         },
-        "user.loginRequest": {
+        "internal_user.loginRequest": {
             "type": "object",
             "required": [
                 "password",
@@ -186,7 +650,7 @@
                 }
             }
         },
-        "user.loginResponse": {
+        "internal_user.loginResponse": {
             "type": "object",
             "properties": {
                 "token": {
@@ -197,13 +661,13 @@
                     "description": "User 登录成功的用户信息（不含密码哈希）。",
                     "allOf": [
                         {
-                            "$ref": "#/definitions/user.User"
+                            "$ref": "#/definitions/internal_user.User"
                         }
                     ]
                 }
             }
         },
-        "user.registerRequest": {
+        "internal_user.registerRequest": {
             "type": "object",
             "required": [
                 "password",
