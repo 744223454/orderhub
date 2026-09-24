@@ -21,7 +21,7 @@ const defaultJWTExpire = 24 * time.Hour
 
 // @title 多角色订单系统 API
 // @version 1.0
-// @description 用户注册与登录接口
+// @description 多角色订单系统后端接口：用户注册、登录与 JWT 认证，以及订单的下单、支付、发货、完成与退款。
 // @host localhost:8888
 // @BasePath /api
 // @securityDefinitions.apikey BearerAuth
