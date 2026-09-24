@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/744223454/orderhub/internal/auth"
+	"github.com/744223454/orderhub/internal/order"
 	"github.com/744223454/orderhub/internal/user"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
@@ -28,13 +29,13 @@ const defaultJWTExpire = 24 * time.Hour
 // @name Authorization
 func main() {
 	if err := godotenv.Load(); err != nil && !os.IsNotExist(err) {
-		panic("failed to load .env file")
+		panic("加载 .env 文件失败: " + err.Error())
 	}
 
 	// JWT 签名密钥：缺失则拒绝启动
 	jwtSecret := os.Getenv("JWT_SECRET")
 	if jwtSecret == "" {
-		panic("JWT_SECRET is not set")
+		panic("未设置 JWT_SECRET 环境变量")
 	}
 	jwtExpire, err := loadJWTExpire()
 	if err != nil {
@@ -43,14 +44,14 @@ func main() {
 
 	config := os.Getenv("DATABASE_URL")
 	if config == "" {
-		panic("DATABASE_URL is not set")
+		panic("未设置 DATABASE_URL 环境变量")
 	}
 	db, err := gorm.Open(postgres.Open(config), &gorm.Config{TranslateError: true})
 	if err != nil {
-		panic("failed to connect database")
+		panic("连接数据库失败: " + err.Error())
 	}
-	if err := db.AutoMigrate(&user.User{}); err != nil {
-		panic("failed to auto migrate: " + err.Error())
+	if err := db.AutoMigrate(&user.User{}, &order.Order{}); err != nil {
+		panic("数据库自动迁移失败: " + err.Error())
 	}
 
 	repo := user.NewRepository(db)
@@ -59,6 +60,10 @@ func main() {
 	handler := user.NewHandler(service, func(u *user.User) (string, error) {
 		return auth.GenerateToken(u, jwtSecret, jwtExpire)
 	})
+
+	orderRepo := order.NewRepository(db)
+	orderService := order.NewService(orderRepo)
+	orderHandler := order.NewHandler(orderService)
 
 	router := gin.Default()
 	router.GET("/", func(c *gin.Context) {
@@ -74,17 +79,18 @@ func main() {
 	// 登录层：需携带有效 JWT
 	authed := api.Group("", auth.Auth(jwtSecret))
 	authed.GET("/me", handler.Me)
+	order.UserRoutes(authed, orderHandler)
 
-	// 角色层：仅运营 / 管理员可访问（后续在此挂载订单与用户管理接口）
+	// 角色层：仅运营 / 管理员可访问（订单管理与用户管理接口）
 	staff := authed.Group("", auth.RequireRole(user.RoleAdmin, user.RoleOps))
-	_ = staff
+	order.StaffRoutes(staff, orderHandler)
 
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8888"
 	}
 	if err := router.Run(":" + port); err != nil {
-		panic("failed to start server: " + err.Error())
+		panic("启动 HTTP 服务失败: " + err.Error())
 	}
 }
 

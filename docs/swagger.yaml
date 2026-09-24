@@ -1,6 +1,57 @@
 basePath: /api
 definitions:
-  user.Role:
+  internal_order.Order:
+    properties:
+      amount:
+        description: Amount 订单金额，单位为分（用整数避免浮点精度问题，前端展示时再除以 100）。
+        type: integer
+      created_at:
+        description: CreatedAt 创建时间。
+        type: string
+      id:
+        description: ID 主键，自增。
+        type: integer
+      product_name:
+        description: ProductName 商品名称。
+        type: string
+      status:
+        allOf:
+        - $ref: '#/definitions/internal_order.Status'
+        description: Status 订单状态。
+      updated_at:
+        description: UpdatedAt 最后更新时间。
+        type: string
+      user_id:
+        description: UserID 下单用户 ID。
+        type: integer
+    type: object
+  internal_order.Status:
+    enum:
+    - pending
+    - paid
+    - shipped
+    - completed
+    - refunded
+    type: string
+    x-enum-varnames:
+    - StatusPending
+    - StatusPaid
+    - StatusShipped
+    - StatusCompleted
+    - StatusRefunded
+  internal_order.createOrderRequest:
+    properties:
+      amount:
+        description: Amount 订单金额，单位为分。
+        type: integer
+      product_name:
+        description: ProductName 商品名称。
+        type: string
+    required:
+    - amount
+    - product_name
+    type: object
+  internal_user.Role:
     enum:
     - admin
     - user
@@ -10,7 +61,7 @@ definitions:
     - RoleAdmin
     - RoleUser
     - RoleOps
-  user.User:
+  internal_user.User:
     properties:
       created_at:
         description: CreatedAt 创建时间。
@@ -23,13 +74,13 @@ definitions:
         type: string
       role:
         allOf:
-        - $ref: '#/definitions/user.Role'
+        - $ref: '#/definitions/internal_user.Role'
         description: Role 用户角色。
       updated_at:
         description: UpdatedAt 最后更新时间。
         type: string
     type: object
-  user.loginRequest:
+  internal_user.loginRequest:
     properties:
       password:
         type: string
@@ -39,17 +90,17 @@ definitions:
     - password
     - username
     type: object
-  user.loginResponse:
+  internal_user.loginResponse:
     properties:
       token:
         description: Token Bearer 访问令牌，后续请求需放入 Authorization 头。
         type: string
       user:
         allOf:
-        - $ref: '#/definitions/user.User'
+        - $ref: '#/definitions/internal_user.User'
         description: User 登录成功的用户信息（不含密码哈希）。
     type: object
-  user.registerRequest:
+  internal_user.registerRequest:
     properties:
       password:
         type: string
@@ -68,6 +119,142 @@ info:
   title: 多角色订单系统 API
   version: "1.0"
 paths:
+  /admin/orders:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/internal_order.Order'
+            type: array
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 查询全部订单（仅运营/管理员）
+      tags:
+      - 订单管理
+  /admin/orders/{id}/complete:
+    post:
+      parameters:
+      - description: 订单 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_order.Order'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 完成订单（shipped → completed，仅运营/管理员）
+      tags:
+      - 订单管理
+  /admin/orders/{id}/refund:
+    post:
+      parameters:
+      - description: 订单 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_order.Order'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 退款（paid/shipped → refunded，仅运营/管理员）
+      tags:
+      - 订单管理
+  /admin/orders/{id}/ship:
+    post:
+      parameters:
+      - description: 订单 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_order.Order'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 发货（paid → shipped，仅运营/管理员）
+      tags:
+      - 订单管理
   /login:
     post:
       consumes:
@@ -78,14 +265,20 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/user.loginRequest'
+          $ref: '#/definitions/internal_user.loginRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/user.loginResponse'
+            $ref: '#/definitions/internal_user.loginResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
         "401":
           description: Unauthorized
           schema:
@@ -116,6 +309,106 @@ paths:
       summary: 获取当前登录用户
       tags:
       - 用户
+  /orders:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/internal_order.Order'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 查询自己的订单列表
+      tags:
+      - 订单
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: 下单信息
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_order.createOrderRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_order.Order'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 创建订单（登录用户）
+      tags:
+      - 订单
+  /orders/{id}/pay:
+    post:
+      parameters:
+      - description: 订单 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_order.Order'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 支付自己的订单（pending → paid）
+      tags:
+      - 订单
   /register:
     post:
       consumes:
@@ -126,16 +419,22 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/user.registerRequest'
+          $ref: '#/definitions/internal_user.registerRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/user.User'
+            $ref: '#/definitions/internal_user.User'
         "400":
           description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
           schema:
             additionalProperties:
               type: string
