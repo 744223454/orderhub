@@ -70,12 +70,59 @@
 
 - **位置**：`web/` 子目录，与本后端同仓。前端代码不跨入 Go 目录，后端代码不跨入 `web/`。
 - **技术栈**：Next.js（App Router）+ React + TypeScript + Ant Design v6。
-- **后端是唯一数据入口**：前端不直连数据库；服务端组件一律通过 `/api/*` 访问 Go 接口。
-- **Ant Design 注意事项**：
-  - antd 组件必须放在带 `'use client'` 的客户端组件中。
-  - 根布局必须用 `@ant-design/nextjs-registry` 的 `<AntdRegistry>` 包裹，否则 SSR 首屏没有样式。
-  - App Router 下不支持 `<Select.Option />`、`<Typography.Text />` 这类点子组件写法，需从具体路径导入。
-- **接口类型来源**：以后端 `docs/swagger.json` 为准，前端 TS 类型应与之一致。
+- **后端是唯一数据入口**：前端不直连数据库。浏览器统一请求同源的 `/api/*`，
+  由 `next.config.ts` 的 `rewrites` 代理到 Go 后端（概念等价 Vite 的 `server.proxy`）。
+  这样做的好处是后端**不需要**开 CORS，前端也不需要 `NEXT_PUBLIC_` 前缀，后端地址不进客户端产物。
+  注意：服务端组件里不能用相对路径取数，Node 环境的 fetch 会报 `Failed to parse URL`，
+  需要另拼绝对地址。
+- **接口类型来源**：以后端 `docs/swagger.json` 为准，前端 TS 类型应与之一致（落在 `src/lib/types.ts`）。
+- **取数与 effect（2026-09-29 决策）**：取数场景**允许**在 `useEffect` 里 `setState`。
+  `react-hooks/set-state-in-effect` 已在 `web/eslint.config.mjs` 末尾**降为 warn**——它过宽，
+  会把「与外部系统正常同步（拉列表）」连同真反例一起拦；作为补偿，同处显式开启了插件里
+  默认未启用的 `react-hooks/no-deriving-state-in-effects`（**error**），由它拦住
+  「在 effect 里从 state / props 派生值」这个真正的反例。
+  ⇒ 看到该 warn 属预期，**不是漏改**；但把 `setState` 都放到 `await` 之后可以连 warn 都不产生。
+  唯一保留的 `eslint-disable` 在 `src/lib/auth.tsx`（同步读 localStorage，没有 await 可挂）。
+
+### Ant Design v6 注意事项
+
+依据官方文档「在 Next.js 中使用」「样式兼容」「v5 升 v6」三篇，以下为确认过的约束：
+
+- **antd 组件必须放在带 `'use client'` 的客户端组件中**，这是本项目所有 antd 页面的前提。
+- **根布局必须用 `@ant-design/nextjs-registry` 的 `<AntdRegistry>` 包裹**，否则 SSR 首屏没有样式。
+  注意 `ConfigProvider` 这类内部用了 hooks 的组件**不能直接写在服务端组件的 layout 里**，
+  要收进一个 `'use client'` 的 Provider 文件（见 `src/components/providers.tsx`）。
+- **点子组件（`<Form.Item />`、`<Select.Option />`、`<Typography.Title />`）只在客户端组件里可用。**
+  antd 组件是客户端模块，服务端组件不能访问其上的属性，用了必然失败：
+  官方文档描述的报错是 `Cannot access .Option on the server ... You cannot dot into a client module from a server component`；
+  实测 Next.js 16 + antd 6.6.5 报的是 `Element type is invalid: ... but got: undefined`。
+  **解法是给该组件加 `'use client'`**——官方示例（`with-sub-components`）采用的就是这个方案。
+  官方中文文档写的「需从具体路径导入」并非必须：只要组件落在客户端边界内，
+  点子组件写法完全正常，本项目当前就是这么用的。
+- **主题与样式覆盖走 CSS 变量**。v6 的 `@ant-design/cssinjs` 默认纯 CSS Variables 模式。
+  改组件内部样式请用 `classNames` / `styles` 语义化 API，或 `theme.useToken()` 取 token，
+  **不要写 `.ant-btn > span` 这类依赖内部 DOM 结构的选择器**——v6 重构过 DOM，这类选择器会失效。
+- **`@ant-design/icons` 必须与 antd 主版本配套**：antd v6 要求 `@ant-design/icons >= 6`，
+  且 icons v6 与 antd v5 不兼容，升级时必须两个一起升。
+- **v6 起不再需要 `@ant-design/v5-patch-for-react-19`**（历史代码里有就直接删）；
+  antd v6 要求 React >= 18，不再支持 React 17 及以下。
+- **v6 有 150+ 个 props 已废弃**并迁移到 `classNames` / `styles`，
+  例如 Alert 的 `message` → `title`、Card 的 `bodyStyle` → `styles.body`、
+  Button 的 `iconPosition` → `iconPlacement`、`dropdownClassName` → `classNames.popup.root`。
+  写组件前先查 v6 迁移文档；控制台出现 `deprecated` 警告要当回事，v7 会移除。
+
+### 样式方案
+
+**不引入 Tailwind，也不引入 Sass**：
+
+- antd v6 已默认纯 CSS 变量模式，主题由 `ConfigProvider` 的 token 统一驱动；
+  再引 Tailwind 等于同时维护两套设计 token，迟早对不上。
+- antd v6 + Tailwind v4 存在已知样式冲突（ant-design#56014，官方 closed as not planned）。
+  共存需要 `<StyleProvider layer>` 包裹 `<ConfigProvider>` + `@layer` 排布 +
+  reset/antd.css 显式挂 `layer()`，且 SSR 下还有「声明 layer 顺序的规则必须先于 antd 注入的
+  `<style>`」这一额外约束，是为一点写 class 的便利换来一整条调试链路。
+- 自定义样式按此层次走：`globals.css` 全局 → `theme.useToken()` 取 token →
+  antd 的 `classNames` / `styles` → 最后才 CSS Modules（Next.js 原生支持，需要时再开）。
 
 ## 项目审查
 
@@ -100,7 +147,15 @@
 前端（在 `web/` 目录执行）：
 
 - `npm run dev` 启动开发服务器（默认 3000 端口）。
+  注意 Next.js 只允许**一个** dev server 实例（共享 `.next` 目录锁）。
+  端口被占时不要「再起一个」，先确认已有实例或先把它停掉。
+  另外，**项目结构大改之后（新增路由组、调整 layout 层级、改根 Provider）要重启 dev server**：
+  HMR 处理不了这个量级的变更，会表现为「服务端渲染的 HTML 与客户端对不上」的
+  hydration mismatch 报错，看起来像代码 bug，实际是 dev server 的中间态。
+  判断办法：直接 `curl` 出服务端 HTML 看结构是否正确，结构对就重启 dev server。
 - `npm run build` 构建校验，`npm run typecheck` 类型检查。
+  改动前端后至少跑 `npm run typecheck`；涉及路由 / 布局 / antd 客户端边界的改动必须跑 `npm run build`，
+  因为类型检查发现不了 App Router 与 RSC 层面的问题。
 
 在提交或声称任务完成之前，应至少通过对应侧的上述检查。
 

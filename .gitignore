@@ -14,3 +14,6 @@ bin/
 *.exe
 *.test
 *.out
+
+# Node.js 版后端（并行参照实现，暂不纳入版本库）
+server-node/

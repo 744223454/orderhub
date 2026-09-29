@@ -2,6 +2,8 @@ import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 import { AntdRegistry } from '@ant-design/nextjs-registry';
 
+import { Providers } from '@/components/providers';
+
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -14,12 +16,16 @@ export const metadata: Metadata = {
  *
  * 必须用 AntdRegistry 包裹子节点：antd 采用 CSS-in-JS，
  * 缺少它服务端渲染出的首屏将不带样式，页面会闪烁。
+ *
+ * Providers 里再包一层 antd 中文语言包与会话 Context，见该文件注释。
  */
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="zh-CN">
       <body>
-        <AntdRegistry>{children}</AntdRegistry>
+        <AntdRegistry>
+          <Providers>{children}</Providers>
+        </AntdRegistry>
       </body>
     </html>
   );
