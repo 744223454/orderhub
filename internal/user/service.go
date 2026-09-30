@@ -231,6 +231,125 @@ func sanitizeExternalID(externalID string) string {
 	return b.String()
 }
 
+// 用户列表分页参数的默认值与上限。
+const (
+	// defaultUserPageSize 是用户列表的默认每页条数。
+	defaultUserPageSize = 20
+	// maxUserPageSize 是每页条数上限，防止调用方一次把整张表拖走。
+	maxUserPageSize = 100
+)
+
+// UserPage 是一页用户查询结果。
+type UserPage struct {
+	// Users 当前页的用户。
+	Users []User
+	// Total 满足条件的用户总数（不受分页限制）。
+	Total int64
+	// Page 生效后的页码，从 1 开始。
+	Page int
+	// PageSize 生效后的每页条数。
+	PageSize int
+}
+
+// ListUsers 分页查询用户，keyword 非空时按用户名（或纯数字形式的 ID）过滤。
+//
+// 非法或越界的分页参数一律回落到默认值，而不是报错：列表接口的参数不值得让调用方
+// 因为「页码写错」而付出一次失败的代价。生效后的参数会随结果一起返回，便于前端对齐。
+func (s *Service) ListUsers(ctx context.Context, keyword string, page, pageSize int) (*UserPage, error) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = defaultUserPageSize
+	}
+	if pageSize > maxUserPageSize {
+		pageSize = maxUserPageSize
+	}
+
+	users, total, err := s.repo.ListUsers(ctx, keyword, (page-1)*pageSize, pageSize)
+	if err != nil {
+		return nil, err
+	}
+	return &UserPage{Users: users, Total: total, Page: page, PageSize: pageSize}, nil
+}
+
+// FindUserByID 按主键查询用户，供管理端在修改后回读最新状态。
+func (s *Service) FindUserByID(ctx context.Context, id uint) (*User, error) {
+	return s.repo.FindByID(ctx, id)
+}
+
+// ListIdentities 批量查询这些用户的外部身份，按用户 ID 分组返回。
+// 由接口层在拿到用户列表后调一次，避免逐行去查造成的 N+1。
+func (s *Service) ListIdentities(ctx context.Context, userIDs []uint) (map[uint][]UserIdentity, error) {
+	identities, err := s.repo.ListIdentitiesByUserIDs(ctx, userIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	grouped := make(map[uint][]UserIdentity, len(userIDs))
+	for _, identity := range identities {
+		grouped[identity.UserID] = append(grouped[identity.UserID], identity)
+	}
+	return grouped, nil
+}
+
+// UpdateRole 修改用户角色。
+//
+// 唯一的一条硬约束是：系统中必须始终至少留一个管理员。降级最后一个管理员意味着再没有人
+// 能进入用户管理把它改回来，系统只能靠手工改库恢复，所以这里拒绝。
+//
+// 检查与写入必须处在同一个事务里（见 Repo.WithinTx / LockAdmins），否则两个并发的降级请求
+// 可能各自读到「还有 2 个管理员」而各自降一个，最终一个不剩。
+func (s *Service) UpdateRole(ctx context.Context, userID uint, role Role) error {
+	if !role.Valid() {
+		return ErrInvalidRole
+	}
+
+	return s.repo.WithinTx(ctx, func(tx *Repo) error {
+		target, err := tx.FindByID(ctx, userID)
+		if err != nil {
+			return err
+		}
+		if target.Role == role {
+			// 幂等：重复把同一个人设成同一个角色不该报错。
+			return nil
+		}
+
+		if target.Role == RoleAdmin {
+			admins, err := tx.LockAdmins(ctx)
+			if err != nil {
+				return err
+			}
+			if admins <= 1 {
+				return ErrLastAdmin
+			}
+		}
+		return tx.UpdateRole(ctx, userID, role)
+	})
+}
+
+// UnbindIdentity 解绑指定用户在某个提供方下的外部身份。
+//
+// 解绑之后该外部账号无法再登录到本系统——下次扫码会被当成新用户重新建号。
+// 这一点要由接口层在确认弹窗里讲清楚，避免管理员误以为是「暂时停用」。
+func (s *Service) UnbindIdentity(ctx context.Context, userID uint, provider IdentityProvider) error {
+	if !provider.Valid() {
+		return ErrInvalidProvider
+	}
+
+	// 先确认用户存在，与 BindExternal 保持对称：否则会把「用户不存在」报成「该登录方式不存在」。
+	if _, err := s.repo.FindByID(ctx, userID); err != nil {
+		return err
+	}
+	return s.repo.DeleteIdentity(ctx, userID, provider)
+}
+
+// hasUsablePassword 判断账号是否设置了可用密码。
+// 企业微信扫码自动建出的账号写入的是占位哈希，不算「有密码」。
+func hasUsablePassword(u *User) bool {
+	return u.PasswordHash != "" && u.PasswordHash != unusablePasswordHash
+}
+
 // validateCredentials 校验用户名与密码长度，按字符数计算以正确处理多字节字符。
 // 返回的错误包装了对应哨兵（ErrInvalidUsername / ErrInvalidPassword），
 // 因此既可被 errors.Is 识别，又能携带具体的长度要求。

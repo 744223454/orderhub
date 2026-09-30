@@ -8,9 +8,40 @@
 
 import type { Role } from './types';
 
+/** 角色对应的中文名，用于展示。 */
+export const ROLE_LABELS: Record<Role, string> = {
+  admin: '管理员',
+  user: '普通用户',
+  ops: '运营',
+};
+
+/**
+ * 用户管理页可以赋予的角色，顺序即按钮顺序。
+ * 与后端 user.Role.Valid() 放行的取值集合保持一致。
+ */
+export const ASSIGNABLE_ROLES: Role[] = ['user', 'ops', 'admin'];
+
+/**
+ * 仅管理员。
+ *
+ * 作为 AuthGuard 的 allow 白名单使用时必须提到模块级：字面量数组每次渲染都是新引用，
+ * 放进组件里会让守卫内部的依赖判断每次都被判为变化。
+ */
+export const ADMIN_ROLES: Role[] = ['admin'];
+
 /** 判断角色是否属于运营 / 管理员（即后端 RequireRole 放行的那两个）。 */
 export function isStaff(role: Role): boolean {
   return role === 'admin' || role === 'ops';
+}
+
+/**
+ * 判断角色是否仅为管理员。
+ *
+ * 与 isStaff 的区别在于运营不算：用户管理、改角色这类操作是权限边界本身，
+ * 后端挂的是 RequireRole(user.RoleAdmin)，前端的入口显隐必须与之一致。
+ */
+export function isAdmin(role: Role): boolean {
+  return role === 'admin';
 }
 
 /**
