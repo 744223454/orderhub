@@ -225,6 +225,278 @@
                 }
             }
         },
+        "/admin/org/directory": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "企业微信通讯录"
+                ],
+                "summary": "获取企业通讯录",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "传 1 则跳过服务端缓存重新抓取",
+                        "name": "refresh",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_wecom.DirectorySnapshot"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/users": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "用户管理"
+                ],
+                "summary": "查询用户列表（仅管理员）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "页码，从 1 开始（默认 1）",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "每页条数（默认 20，上限 100）",
+                        "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "用户名模糊匹配；纯数字时同时匹配用户 ID",
+                        "name": "keyword",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_user.listUsersResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/users/{id}/identities/{provider}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "用户管理"
+                ],
+                "summary": "解绑用户的外部身份（仅管理员）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "用户 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "身份提供方，如 wecom",
+                        "name": "provider",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/users/{id}/role": {
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "用户管理"
+                ],
+                "summary": "修改用户角色（仅管理员）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "用户 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "目标角色",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_user.updateRoleRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_user.adminUserView"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/auth/wecom/authorize": {
             "get": {
                 "produces": [
@@ -808,6 +1080,15 @@
                 }
             }
         },
+        "internal_user.IdentityProvider": {
+            "type": "string",
+            "enum": [
+                "wecom"
+            ],
+            "x-enum-varnames": [
+                "ProviderWecom"
+            ]
+        },
         "internal_user.Role": {
             "type": "string",
             "enum": [
@@ -847,6 +1128,91 @@
                 "updated_at": {
                     "description": "UpdatedAt 最后更新时间。",
                     "type": "string"
+                }
+            }
+        },
+        "internal_user.adminUserView": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "description": "CreatedAt 创建时间。",
+                    "type": "string"
+                },
+                "has_password": {
+                    "description": "HasPassword 账号是否设置了可用密码。企业微信扫码自动建出的账号没有密码。",
+                    "type": "boolean"
+                },
+                "id": {
+                    "description": "ID 用户主键。",
+                    "type": "integer"
+                },
+                "identities": {
+                    "description": "Identities 账号绑定的外部身份。",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_user.identityView"
+                    }
+                },
+                "name": {
+                    "description": "Name 用户名。",
+                    "type": "string"
+                },
+                "role": {
+                    "description": "Role 用户角色。",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/internal_user.Role"
+                        }
+                    ]
+                },
+                "updated_at": {
+                    "description": "UpdatedAt 最后更新时间。",
+                    "type": "string"
+                }
+            }
+        },
+        "internal_user.identityView": {
+            "type": "object",
+            "properties": {
+                "external_id": {
+                    "description": "ExternalID 提供方侧的标识，如企业微信 userid。",
+                    "type": "string"
+                },
+                "id": {
+                    "description": "ID 绑定关系主键。",
+                    "type": "integer"
+                },
+                "provider": {
+                    "description": "Provider 提供方，如 wecom。",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/internal_user.IdentityProvider"
+                        }
+                    ]
+                }
+            }
+        },
+        "internal_user.listUsersResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "description": "Items 当前页的用户。",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_user.adminUserView"
+                    }
+                },
+                "page": {
+                    "description": "Page 生效后的页码，从 1 开始。",
+                    "type": "integer"
+                },
+                "page_size": {
+                    "description": "PageSize 生效后的每页条数。",
+                    "type": "integer"
+                },
+                "total": {
+                    "description": "Total 满足条件的用户总数（不受分页限制）。",
+                    "type": "integer"
                 }
             }
         },
@@ -897,6 +1263,125 @@
                 },
                 "username": {
                     "type": "string"
+                }
+            }
+        },
+        "internal_user.updateRoleRequest": {
+            "type": "object",
+            "required": [
+                "role"
+            ],
+            "properties": {
+                "role": {
+                    "description": "Role 目标角色，取值与 user.Role 一致。",
+                    "type": "string"
+                }
+            }
+        },
+        "internal_wecom.Department": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "description": "ID 部门 id，同一企业内唯一。",
+                    "type": "integer"
+                },
+                "leader_user_ids": {
+                    "description": "LeaderUserIDs 部门负责人的 userid 列表。",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "name": {
+                    "description": "Name 部门名称。",
+                    "type": "string"
+                },
+                "order": {
+                    "description": "Order 在上级部门内的排序号，由企微分配（实测取值形如 99994000，不是 1/2/3）。",
+                    "type": "integer"
+                },
+                "parent_id": {
+                    "description": "ParentID 上级部门 id，根部门为 0。\n\n⚠️ 它可能指向一个**不在本列表里**的部门：自建应用只能读可见范围，\n父部门不在范围内时就成了孤儿。组装树的一方必须处理这种情况，别默认树是连通的。",
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_wecom.DirectorySnapshot": {
+            "type": "object",
+            "properties": {
+                "departments": {
+                    "description": "Departments 全量部门（已按 order、id 排序，顺序稳定）。",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_wecom.Department"
+                    }
+                },
+                "fetched_at": {
+                    "description": "FetchedAt 本次快照的抓取完成时间。",
+                    "type": "string"
+                },
+                "from_cache": {
+                    "description": "FromCache 本次响应是否直接命中服务端缓存。\n前端据此说明「这份数据是刚抓的还是几分钟前的」，避免把缓存当成实时。",
+                    "type": "boolean"
+                },
+                "members": {
+                    "description": "Members 去重后的成员（成员可属于多个部门，同一人只出现一次）。",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_wecom.Member"
+                    }
+                }
+            }
+        },
+        "internal_wecom.Member": {
+            "type": "object",
+            "properties": {
+                "departments": {
+                    "description": "Departments 所属部门（含是否负责人），至少一个。",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_wecom.MemberDepartment"
+                    }
+                },
+                "direct_leader_ids": {
+                    "description": "DirectLeaderIDs 直属上级的 userid 列表。\n\n⚠️ 上级本人可能不在可见范围内，此时这个 userid 在 members 里查不到，\n前端要有回落（直接显示 userid 而不是空白）。",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "main_department_id": {
+                    "description": "MainDepartmentID 主部门 id。",
+                    "type": "integer"
+                },
+                "name": {
+                    "description": "Name 成员姓名。",
+                    "type": "string"
+                },
+                "position": {
+                    "description": "Position 职务，可能为空串。",
+                    "type": "string"
+                },
+                "status": {
+                    "description": "Status 成员状态，取值见 MemberStatusXxx。",
+                    "type": "integer"
+                },
+                "userid": {
+                    "description": "UserID 成员帐号，企业内唯一。",
+                    "type": "string"
+                }
+            }
+        },
+        "internal_wecom.MemberDepartment": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "description": "ID 部门 id。",
+                    "type": "integer"
+                },
+                "is_leader": {
+                    "description": "IsLeader 该成员是否为这个部门的负责人。",
+                    "type": "boolean"
                 }
             }
         },

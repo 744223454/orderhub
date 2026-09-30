@@ -19,14 +19,20 @@ import (
 type fakeWecom struct {
 	server *httptest.Server
 
-	mu         sync.Mutex
-	tokenCalls int
-	userCalls  int
+	mu              sync.Mutex
+	tokenCalls      int
+	userCalls       int
+	departmentCalls int
+	memberCalls     int
 
 	// tokenResponse 按调用序号返回响应体，返回空串表示用默认成功响应。
 	tokenResponse func(call int) string
 	// userResponse 按调用序号与本次使用的 access_token 返回响应体。
 	userResponse func(call int, accessToken string) string
+	// departmentResponse 按调用序号返回部门列表响应体（数组或错误对象），空串表示默认。
+	departmentResponse func(call int) string
+	// memberResponse 按调用序号与目标部门 id 返回成员列表响应体，空串表示默认。
+	memberResponse func(call int, departmentID string) string
 }
 
 // newFakeWecom 启动一台模拟企微服务，测试结束时自动关闭。
@@ -37,6 +43,8 @@ func newFakeWecom(t *testing.T) *fakeWecom {
 	mux := http.NewServeMux()
 	mux.HandleFunc(tokenPath, f.handleToken)
 	mux.HandleFunc(userInfoPath, f.handleUserInfo)
+	mux.HandleFunc(departmentListPath, f.handleDepartmentList)
+	mux.HandleFunc(userListPath, f.handleUserList)
 	f.server = httptest.NewServer(mux)
 	t.Cleanup(f.server.Close)
 
@@ -86,6 +94,53 @@ func (f *fakeWecom) userInfoFetched() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.userCalls
+}
+
+// handleDepartmentList 模拟 department/list：与真实接口一致，返回**对象**
+// （`{"errcode":0,...,"department":[...]}`），而不是裸数组。
+func (f *fakeWecom) handleDepartmentList(w http.ResponseWriter, _ *http.Request) {
+	f.mu.Lock()
+	f.departmentCalls++
+	call := f.departmentCalls
+	respond := f.departmentResponse
+	f.mu.Unlock()
+
+	body := `{"errcode":0,"errmsg":"ok","department":[{"id":1,"name":"根部门","parentid":0,"order":100000000,"department_leader":["boss"]}]}`
+	if respond != nil {
+		if custom := respond(call); custom != "" {
+			body = custom
+		}
+	}
+	writeJSONBody(w, body)
+}
+
+// handleUserList 模拟 user/list：返回指定部门的成员。
+func (f *fakeWecom) handleUserList(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	f.memberCalls++
+	call := f.memberCalls
+	respond := f.memberResponse
+	f.mu.Unlock()
+
+	body := `{"errcode":0,"errmsg":"ok","userlist":[]}`
+	if respond != nil {
+		if custom := respond(call, r.URL.Query().Get("department_id")); custom != "" {
+			body = custom
+		}
+	}
+	writeJSONBody(w, body)
+}
+
+func (f *fakeWecom) departmentsFetched() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.departmentCalls
+}
+
+func (f *fakeWecom) membersFetched() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.memberCalls
 }
 
 func writeJSONBody(w http.ResponseWriter, body string) {
@@ -302,6 +357,10 @@ func TestExchangeCodeTranslatesErrCodes(t *testing.T) {
 		{"授权码已使用或超时", `{"errcode":40029,"errmsg":"invalid code"}`, ErrInvalidAuthCode},
 		{"调用来源 IP 不在可信 IP 列表", `{"errcode":60020,"errmsg":"not allow to access from your ip"}`, ErrCorpConfig},
 		{"回调地址未登记可信域名", `{"errcode":50001,"errmsg":"redirect_uri unauthorized"}`, ErrCorpConfig},
+		// 下面两条是从「配置异常」里拆出来的：频率超限是可重试的临时状态，
+		// 无权限是可见范围没配。混成一类会把排查方向直接带偏。
+		{"接口调用超过限制", `{"errcode":45009,"errmsg":"api freq out of limit"}`, ErrRateLimited},
+		{"无权读取该成员或部门", `{"errcode":60011,"errmsg":"no privilege to access/modify contact/party/agent"}`, ErrNoPermission},
 		{"未识别的错误码归为技术错误", `{"errcode":12345,"errmsg":"unknown"}`, ErrWecomUnavailable},
 	}
 

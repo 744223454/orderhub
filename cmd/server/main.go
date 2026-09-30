@@ -89,16 +89,25 @@ func main() {
 	staff := authed.Group("", auth.RequireRole(user.RoleAdmin, user.RoleOps))
 	order.StaffRoutes(staff, orderHandler)
 
-	// 企业微信扫码登录：可选能力，配置齐备才注册路由。
+	// 管理员专属层：仅管理员可访问（用户管理与角色变更）
+	adminOnly := authed.Group("", auth.RequireRole(user.RoleAdmin))
+	user.AdminRoutes(adminOnly, handler)
+
+	// 企业微信接入：可选能力。
+	// 扫码登录的接口只在配置齐备时注册；通讯录接口始终注册（未配置时返回 503）。
 	wecomClient, err := loadWecomClient()
 	if err != nil {
 		panic(err.Error())
 	}
 	if wecomClient == nil {
-		log.Println("未配置企业微信登录（WECOM_* 全部为空），相关接口未注册")
-	} else {
-		registerWecomRoutes(api, authed, wecomClient, service, jwtSecret, jwtExpire)
+		log.Println("未配置企业微信登录（WECOM_* 全部为空），扫码登录接口未注册；通讯录接口将返回 503")
 	}
+	wecomHandler := newWecomHandler(wecomClient, service, jwtSecret, jwtExpire)
+	if wecomClient != nil {
+		wecom.PublicRoutes(api, wecomHandler)
+		wecom.AuthedRoutes(authed, wecomHandler)
+	}
+	wecom.AdminRoutes(adminOnly, wecomHandler)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -153,19 +162,21 @@ func loadWecomClient() (*wecom.Client, error) {
 	}
 }
 
-// registerWecomRoutes 装配企业微信登录接口。
+// newWecomHandler 装配企业微信接口处理器。
 //
 // user 模块与 wecom 模块之间用「函数注入」相连，与 user.TokenIssuer 的做法一致：
 // wecom 因此不需要引用 auth 包，user 也不需要知道企业微信的存在，依赖方向仍是
 // wecom → user 单向。
-func registerWecomRoutes(
-	public *gin.RouterGroup,
-	authed *gin.RouterGroup,
+//
+// client 允许为 nil（未配置企业微信）：此时扫码登录的接口不会被注册，
+// 通讯录接口由处理器返回 503。因为要兜住 nil，登录 / 绑定的闭包在这里就建好，
+// 而不是等确认配置齐备后再建。
+func newWecomHandler(
 	client *wecom.Client,
 	service *user.Service,
 	jwtSecret string,
 	jwtExpire time.Duration,
-) {
+) *wecom.Handler {
 	// 把企业微信 userid 换成「本地账号 + 访问令牌」：首次登录自动建号。
 	login := func(ctx context.Context, externalID string) (*user.User, string, error) {
 		u, err := service.LoginByExternal(ctx, user.ProviderWecom, externalID)
@@ -184,7 +195,5 @@ func registerWecomRoutes(
 		return service.BindExternal(ctx, userID, user.ProviderWecom, externalID)
 	}
 
-	wecomHandler := wecom.NewHandler(client, login, bind)
-	wecom.PublicRoutes(public, wecomHandler)
-	wecom.AuthedRoutes(authed, wecomHandler)
+	return wecom.NewHandler(client, login, bind)
 }

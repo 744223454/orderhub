@@ -33,6 +33,10 @@ const (
 	tokenPath = "/cgi-bin/gettoken"
 	// userInfoPath 用授权码换成员身份的接口路径。
 	userInfoPath = "/cgi-bin/auth/getuserinfo"
+	// departmentListPath 获取全量部门列表的接口路径（无需参数，一次返回所有部门）。
+	departmentListPath = "/cgi-bin/department/list"
+	// userListPath 获取部门成员的接口路径（department_id 必填）。
+	userListPath = "/cgi-bin/user/list"
 
 	// loginCallbackPath 登录回调页路径（前端页面）。
 	loginCallbackPath = "/login/wecom/callback"
@@ -43,6 +47,13 @@ const (
 	defaultHTTPTimeout = 5 * time.Second
 	// maxResponseBytes 是响应体读取上限，避免异常响应撑爆内存。
 	maxResponseBytes = 64 << 10
+	// maxDirectoryResponseBytes 是通讯录接口的响应体上限。
+	//
+	// 必须比 maxResponseBytes 宽松得多：user/list 一次返回一个部门的**全部**成员，
+	// 大部门几 MB 很正常。64KB 会把响应截断成半截 JSON ——
+	// 报出来的是一个「解析响应失败」，与真实原因（响应太大）隔了十万八千里。
+	// 截断不会造成静默丢数据（JSON 解析必然失败），但会让功能直接不可用。
+	maxDirectoryResponseBytes = 8 << 20
 	// tokenExpiryMargin 是 access_token 的提前刷新余量。
 	tokenExpiryMargin = 5 * time.Minute
 	// minTokenTTL 是缓存有效期的下限。企微的 expires_in 正常恒为 7200，
@@ -129,6 +140,23 @@ type apiResponse struct {
 	OpenID string `json:"openid"`
 }
 
+// code 实现 codeCarrier。
+func (r *apiResponse) code() int { return r.ErrCode }
+
+// message 实现 codeCarrier。
+func (r *apiResponse) message() string { return r.ErrMsg }
+
+// codeCarrier 是企微响应里所有接口共有的那一部分：返回码。
+//
+// 抽出它的用途是让「判返回码 + 凭证失效重试一次」这套逻辑对**所有**接口通用，
+// 而不必给每个接口各写一遍重试。各接口的响应结构体都实现它。
+type codeCarrier interface {
+	// code 返回企微的 errcode，0 表示成功。
+	code() int
+	// message 返回企微的 errmsg，仅用于日志。
+	message() string
+}
+
 // Identity 是企业微信授权码换回的成员身份。
 type Identity struct {
 	// UserID 企业成员 userid；非企业成员为空。
@@ -144,7 +172,7 @@ func (i Identity) IsCorpMember() bool {
 
 // Client 是企业微信服务端 API 的客户端。
 //
-// 并发安全：除 access_token 缓存（由互斥锁与 singleflight 保护）外不含可变状态，
+// 并发安全：可变状态只有 access_token 缓存与通讯录快照（各自有锁与 singleflight 保护），
 // 可被多个 goroutine 同时调用。
 type Client struct {
 	cfg  Config
@@ -158,6 +186,12 @@ type Client struct {
 	mu       sync.RWMutex
 	token    string
 	tokenExp time.Time
+
+	// dirMu 保护通讯录快照，与 token 分开用两把锁：两者寿命完全不同
+	// （token 按小时，快照按分钟），共锁只会让读 token 的请求排队等通讯录写完。
+	dirMu   sync.RWMutex
+	dir     *DirectorySnapshot
+	dirTime time.Time
 }
 
 // NewClient 创建企业微信客户端。配置中的地址留空时回落到企微正式地址。
@@ -232,17 +266,22 @@ func (c *Client) doWithToken(ctx context.Context, path string, params url.Values
 		return nil, "", err
 	}
 
+	resp, err := c.getJSON(ctx, path, withToken(params, token))
+	if err != nil {
+		return nil, token, err
+	}
+	return resp, token, nil
+}
+
+// withToken 复制一份查询参数并附上 access_token。
+// 复制而不是就地改：调用方的 params 可能被复用（例如重试时再传一次）。
+func withToken(params url.Values, token string) url.Values {
 	query := url.Values{}
 	for key, values := range params {
 		query[key] = values
 	}
 	query.Set("access_token", token)
-
-	resp, err := c.getJSON(ctx, path, query)
-	if err != nil {
-		return nil, token, err
-	}
-	return resp, token, nil
+	return query
 }
 
 // callWithToken 调用接口，并在遇到「凭证失效」类错误码时刷新凭证重试一次。
@@ -276,6 +315,58 @@ func (c *Client) callWithToken(ctx context.Context, path string, params url.Valu
 	}
 
 	return nil, translateErrCode(resp.ErrCode, resp.ErrMsg)
+}
+
+// callWithTokenInto 与 callWithToken 同构，但把响应解析到调用方指定的结构体
+// （dst 须实现 codeCarrier），用于字段比通用外壳更多的接口 —— 例如
+// department/list 多一个 department[]、user/list 多一个 userlist[]。
+//
+// ⚠️ 实测结论，别再凭印象改写：这两个接口**成功时返回的也是对象**
+// （`{"errcode":0,"errmsg":"ok","department":[...]}`），不是裸数组。
+// 官方文档示例只贴了数组部分，很容易让人以为外层没有 errcode 外壳，
+// 于是把「成功响应」按数组解析、再对失败响应做特判，多出一整条不该存在的分支。
+func (c *Client) callWithTokenInto(ctx context.Context, path string, params url.Values, dst codeCarrier) error {
+	code, msg, token, err := c.fetchInto(ctx, path, params, dst)
+	if err != nil {
+		return err
+	}
+	if code == 0 {
+		return nil
+	}
+	if !isTokenInvalid(code) {
+		return translateErrCode(code, msg)
+	}
+
+	// 与 callWithToken 同样只重试一次、只清自己用过的那个 token。
+	c.invalidateToken(token)
+
+	retriedCode, retriedMsg, _, retryErr := c.fetchInto(ctx, path, params, dst)
+	if retryErr != nil {
+		return retryErr
+	}
+	if retriedCode == 0 {
+		return nil
+	}
+	return translateErrCode(retriedCode, retriedMsg)
+}
+
+// fetchInto 取一次 access_token 并调用接口，返回本次的返回码与所用凭证。
+// 返回值偏多，但都是重试逻辑必需的：没有 token 就无法定点清缓存。
+func (c *Client) fetchInto(
+	ctx context.Context,
+	path string,
+	params url.Values,
+	dst codeCarrier,
+) (code int, msg string, token string, err error) {
+	token, err = c.accessToken(ctx)
+	if err != nil {
+		return 0, "", "", err
+	}
+
+	if err := c.getJSONInto(ctx, path, withToken(params, token), maxDirectoryResponseBytes, dst); err != nil {
+		return 0, "", token, err
+	}
+	return dst.code(), dst.message(), token, nil
 }
 
 // accessToken 返回可用的 access_token，必要时向企微获取。
@@ -361,6 +452,29 @@ func (c *Client) invalidateToken(expected string) {
 // 绝不能把完整 URL 写进错误：gettoken 的查询串里带着 corpsecret，
 // 一旦进了日志就等于泄漏凭证。
 func (c *Client) getJSON(ctx context.Context, path string, query url.Values) (*apiResponse, error) {
+	var parsed apiResponse
+	if err := c.getJSONInto(ctx, path, query, maxResponseBytes, &parsed); err != nil {
+		return nil, err
+	}
+	return &parsed, nil
+}
+
+// getJSONInto 发起 GET 并把响应解析到 dst，limit 指定响应体读取上限。
+func (c *Client) getJSONInto(ctx context.Context, path string, query url.Values, limit int64, dst any) error {
+	body, err := c.doGet(ctx, path, query, limit)
+	if err != nil {
+		return err
+	}
+
+	if err := json.Unmarshal(body, dst); err != nil {
+		return fmt.Errorf("解析企业微信 %s 响应失败: %w", path, err)
+	}
+	return nil
+}
+
+// doGet 执行一次 GET 并返回响应体，负责请求构造、超时、体积上限与状态码检查。
+// 错误文案里只出现接口路径，不出现完整 URL（原因见 getJSON 的说明）。
+func (c *Client) doGet(ctx context.Context, path string, query url.Values, limit int64) ([]byte, error) {
 	endpoint := c.cfg.OpenAPIBase + path + "?" + query.Encode()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
@@ -374,19 +488,14 @@ func (c *Client) getJSON(ctx context.Context, path string, query url.Values) (*a
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, limit))
 	if err != nil {
 		return nil, fmt.Errorf("读取企业微信 %s 响应失败: %s", path, c.describeRequestError(err))
 	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("%w: %s 返回状态码 %d", ErrWecomUnavailable, path, resp.StatusCode)
 	}
-
-	var parsed apiResponse
-	if err := json.Unmarshal(body, &parsed); err != nil {
-		return nil, fmt.Errorf("解析企业微信 %s 响应失败: %w", path, err)
-	}
-	return &parsed, nil
+	return body, nil
 }
 
 // describeRequestError 提取请求错误中不含 URL 的部分，并兜底抹掉 corpsecret。
@@ -431,11 +540,17 @@ func translateErrCode(code int, msg string) error {
 	switch code {
 	case 40029:
 		return fmt.Errorf("%w: %s", ErrInvalidAuthCode, msg)
+	case 45009:
+		// 频率超限是**可重试**的临时状态，与配置类故障分开：调用方据此提示
+		// 「稍后重试」，而不是让人去查配置。
+		return fmt.Errorf("%w: errcode=%d msg=%s", ErrRateLimited, code, msg)
+	case 60011:
+		// 无权限：多数情况是自建应用的可见范围没覆盖目标部门。
+		return fmt.Errorf("%w: errcode=%d msg=%s", ErrNoPermission, code, msg)
 	case 40001, // 不合法的 Secret / access_token 获取凭证失败
 		40013, // 不合法的 CorpID
 		50001, // 回调地址未登记可信域名
-		60020, // 调用来源 IP 不在企业可信 IP 列表
-		45009: // 接口调用超过限制
+		60020: // 调用来源 IP 不在企业可信 IP 列表
 		return fmt.Errorf("%w: errcode=%d msg=%s", ErrCorpConfig, code, msg)
 	}
 	return fmt.Errorf("%w: errcode=%d msg=%s", ErrWecomUnavailable, code, msg)

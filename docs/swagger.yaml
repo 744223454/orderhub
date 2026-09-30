@@ -80,6 +80,12 @@ definitions:
     - amount
     - product_name
     type: object
+  internal_user.IdentityProvider:
+    enum:
+    - wecom
+    type: string
+    x-enum-varnames:
+    - ProviderWecom
   internal_user.Role:
     enum:
     - admin
@@ -108,6 +114,63 @@ definitions:
       updated_at:
         description: UpdatedAt 最后更新时间。
         type: string
+    type: object
+  internal_user.adminUserView:
+    properties:
+      created_at:
+        description: CreatedAt 创建时间。
+        type: string
+      has_password:
+        description: HasPassword 账号是否设置了可用密码。企业微信扫码自动建出的账号没有密码。
+        type: boolean
+      id:
+        description: ID 用户主键。
+        type: integer
+      identities:
+        description: Identities 账号绑定的外部身份。
+        items:
+          $ref: '#/definitions/internal_user.identityView'
+        type: array
+      name:
+        description: Name 用户名。
+        type: string
+      role:
+        allOf:
+        - $ref: '#/definitions/internal_user.Role'
+        description: Role 用户角色。
+      updated_at:
+        description: UpdatedAt 最后更新时间。
+        type: string
+    type: object
+  internal_user.identityView:
+    properties:
+      external_id:
+        description: ExternalID 提供方侧的标识，如企业微信 userid。
+        type: string
+      id:
+        description: ID 绑定关系主键。
+        type: integer
+      provider:
+        allOf:
+        - $ref: '#/definitions/internal_user.IdentityProvider'
+        description: Provider 提供方，如 wecom。
+    type: object
+  internal_user.listUsersResponse:
+    properties:
+      items:
+        description: Items 当前页的用户。
+        items:
+          $ref: '#/definitions/internal_user.adminUserView'
+        type: array
+      page:
+        description: Page 生效后的页码，从 1 开始。
+        type: integer
+      page_size:
+        description: PageSize 生效后的每页条数。
+        type: integer
+      total:
+        description: Total 满足条件的用户总数（不受分页限制）。
+        type: integer
     type: object
   internal_user.loginRequest:
     properties:
@@ -140,6 +203,100 @@ definitions:
     required:
     - password
     - username
+    type: object
+  internal_user.updateRoleRequest:
+    properties:
+      role:
+        description: Role 目标角色，取值与 user.Role 一致。
+        type: string
+    required:
+    - role
+    type: object
+  internal_wecom.Department:
+    properties:
+      id:
+        description: ID 部门 id，同一企业内唯一。
+        type: integer
+      leader_user_ids:
+        description: LeaderUserIDs 部门负责人的 userid 列表。
+        items:
+          type: string
+        type: array
+      name:
+        description: Name 部门名称。
+        type: string
+      order:
+        description: Order 在上级部门内的排序号，由企微分配（实测取值形如 99994000，不是 1/2/3）。
+        type: integer
+      parent_id:
+        description: |-
+          ParentID 上级部门 id，根部门为 0。
+
+          ⚠️ 它可能指向一个**不在本列表里**的部门：自建应用只能读可见范围，
+          父部门不在范围内时就成了孤儿。组装树的一方必须处理这种情况，别默认树是连通的。
+        type: integer
+    type: object
+  internal_wecom.DirectorySnapshot:
+    properties:
+      departments:
+        description: Departments 全量部门（已按 order、id 排序，顺序稳定）。
+        items:
+          $ref: '#/definitions/internal_wecom.Department'
+        type: array
+      fetched_at:
+        description: FetchedAt 本次快照的抓取完成时间。
+        type: string
+      from_cache:
+        description: |-
+          FromCache 本次响应是否直接命中服务端缓存。
+          前端据此说明「这份数据是刚抓的还是几分钟前的」，避免把缓存当成实时。
+        type: boolean
+      members:
+        description: Members 去重后的成员（成员可属于多个部门，同一人只出现一次）。
+        items:
+          $ref: '#/definitions/internal_wecom.Member'
+        type: array
+    type: object
+  internal_wecom.Member:
+    properties:
+      departments:
+        description: Departments 所属部门（含是否负责人），至少一个。
+        items:
+          $ref: '#/definitions/internal_wecom.MemberDepartment'
+        type: array
+      direct_leader_ids:
+        description: |-
+          DirectLeaderIDs 直属上级的 userid 列表。
+
+          ⚠️ 上级本人可能不在可见范围内，此时这个 userid 在 members 里查不到，
+          前端要有回落（直接显示 userid 而不是空白）。
+        items:
+          type: string
+        type: array
+      main_department_id:
+        description: MainDepartmentID 主部门 id。
+        type: integer
+      name:
+        description: Name 成员姓名。
+        type: string
+      position:
+        description: Position 职务，可能为空串。
+        type: string
+      status:
+        description: Status 成员状态，取值见 MemberStatusXxx。
+        type: integer
+      userid:
+        description: UserID 成员帐号，企业内唯一。
+        type: string
+    type: object
+  internal_wecom.MemberDepartment:
+    properties:
+      id:
+        description: ID 部门 id。
+        type: integer
+      is_leader:
+        description: IsLeader 该成员是否为这个部门的负责人。
+        type: boolean
     type: object
   internal_wecom.authorizeResponse:
     properties:
@@ -312,6 +469,179 @@ paths:
       summary: 发货（paid → shipped，仅运营/管理员）
       tags:
       - 订单管理
+  /admin/org/directory:
+    get:
+      parameters:
+      - description: 传 1 则跳过服务端缓存重新抓取
+        in: query
+        name: refresh
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_wecom.DirectorySnapshot'
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "429":
+          description: Too Many Requests
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "502":
+          description: Bad Gateway
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "503":
+          description: Service Unavailable
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 获取企业通讯录
+      tags:
+      - 企业微信通讯录
+  /admin/users:
+    get:
+      parameters:
+      - description: 页码，从 1 开始（默认 1）
+        in: query
+        name: page
+        type: integer
+      - description: 每页条数（默认 20，上限 100）
+        in: query
+        name: page_size
+        type: integer
+      - description: 用户名模糊匹配；纯数字时同时匹配用户 ID
+        in: query
+        name: keyword
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_user.listUsersResponse'
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 查询用户列表（仅管理员）
+      tags:
+      - 用户管理
+  /admin/users/{id}/identities/{provider}:
+    delete:
+      parameters:
+      - description: 用户 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 身份提供方，如 wecom
+        in: path
+        name: provider
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 解绑用户的外部身份（仅管理员）
+      tags:
+      - 用户管理
+  /admin/users/{id}/role:
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: 用户 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 目标角色
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_user.updateRoleRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_user.adminUserView'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 修改用户角色（仅管理员）
+      tags:
+      - 用户管理
   /auth/wecom/authorize:
     get:
       parameters:

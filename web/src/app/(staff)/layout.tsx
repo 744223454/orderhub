@@ -6,6 +6,7 @@ import { Button, Layout, Typography } from 'antd';
 import { AuthGuard } from '@/components/auth-guard';
 import { NavLink } from '@/components/nav-link';
 import { useSession } from '@/lib/auth';
+import { isAdmin } from '@/lib/roles';
 import type { Role } from '@/lib/types';
 
 /**
@@ -25,7 +26,7 @@ const STAFF_ROLES: Role[] = ['admin', 'ops'];
  * (staff)/admin/orders/page.tsx 的地址就是 /admin/orders。
  */
 export default function StaffLayout({ children }: { children: ReactNode }) {
-  const { signOut } = useSession();
+  const { session, signOut } = useSession();
 
   return (
     <AuthGuard allow={STAFF_ROLES}>
@@ -43,6 +44,14 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
           <Typography.Text strong>多角色订单系统 · 管理端</Typography.Text>
           <NavLink href="/admin/orders">订单管理</NavLink>
           <NavLink href="/orders">我的订单</NavLink>
+          {/* 用户管理与组织架构只对管理员显示，用 isAdmin 而不是 isStaff ——
+              运营能进这个页面的后端接口会直接 403，入口就不该出现。 */}
+          {session !== null && isAdmin(session.user.role) && (
+            <>
+              <NavLink href="/admin/users">用户管理</NavLink>
+              <NavLink href="/admin/org">组织架构</NavLink>
+            </>
+          )}
           <NavLink href="/settings">账号设置</NavLink>
           <span style={{ marginLeft: 'auto' }}>
             <Button type="link" style={{ padding: 0 }} onClick={signOut}>
