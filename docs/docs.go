@@ -231,6 +231,179 @@ const docTemplate = `{
                 }
             }
         },
+        "/auth/wecom/authorize": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "企业微信登录"
+                ],
+                "summary": "获取企业微信扫码登录链接",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "授权用途：login（默认，扫码登录）或 bind（绑定到当前账号）",
+                        "name": "intent",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_wecom.authorizeResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/wecom/bind": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "企业微信登录"
+                ],
+                "summary": "绑定企业微信身份",
+                "parameters": [
+                    {
+                        "description": "回调参数",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_wecom.callbackRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/wecom/login": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "企业微信登录"
+                ],
+                "summary": "企业微信扫码登录",
+                "parameters": [
+                    {
+                        "description": "回调参数",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_wecom.callbackRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_wecom.loginResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/login": {
             "post": {
                 "consumes": [
@@ -528,6 +701,48 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "github_com_744223454_orderhub_internal_user.Role": {
+            "type": "string",
+            "enum": [
+                "admin",
+                "user",
+                "ops"
+            ],
+            "x-enum-varnames": [
+                "RoleAdmin",
+                "RoleUser",
+                "RoleOps"
+            ]
+        },
+        "github_com_744223454_orderhub_internal_user.User": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "description": "CreatedAt 创建时间。",
+                    "type": "string"
+                },
+                "id": {
+                    "description": "ID 主键，自增。",
+                    "type": "integer"
+                },
+                "name": {
+                    "description": "Name 登录用户名，全局唯一。",
+                    "type": "string"
+                },
+                "role": {
+                    "description": "Role 用户角色。",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_744223454_orderhub_internal_user.Role"
+                        }
+                    ]
+                },
+                "updated_at": {
+                    "description": "UpdatedAt 最后更新时间。",
+                    "type": "string"
+                }
+            }
+        },
         "internal_order.Order": {
             "type": "object",
             "properties": {
@@ -688,6 +903,49 @@ const docTemplate = `{
                 },
                 "username": {
                     "type": "string"
+                }
+            }
+        },
+        "internal_wecom.authorizeResponse": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "description": "URL 企业微信扫码登录页地址，前端应整页跳转到它（不是 fetch）。",
+                    "type": "string"
+                }
+            }
+        },
+        "internal_wecom.callbackRequest": {
+            "type": "object",
+            "required": [
+                "code",
+                "state"
+            ],
+            "properties": {
+                "code": {
+                    "description": "Code 企微回调带回的授权码，只能用一次、5 分钟过期。",
+                    "type": "string"
+                },
+                "state": {
+                    "description": "State 发起授权时下发的状态串，用于防 CSRF。",
+                    "type": "string"
+                }
+            }
+        },
+        "internal_wecom.loginResponse": {
+            "type": "object",
+            "properties": {
+                "token": {
+                    "description": "Token Bearer 访问令牌，后续请求需放入 Authorization 头。",
+                    "type": "string"
+                },
+                "user": {
+                    "description": "User 登录成功的用户信息（不含密码哈希）。",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_744223454_orderhub_internal_user.User"
+                        }
+                    ]
                 }
             }
         }

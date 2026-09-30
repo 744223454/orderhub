@@ -34,8 +34,8 @@ func setupTestRepo(t *testing.T) *Repo {
 		t.Fatalf("连接数据库失败: %v", err)
 	}
 	// 表结构迁移是幂等的，且与服务启动时的行为一致。
-	if err := db.AutoMigrate(&User{}); err != nil {
-		t.Fatalf("迁移 users 表失败: %v", err)
+	if err := db.AutoMigrate(&User{}, &UserIdentity{}); err != nil {
+		t.Fatalf("迁移用户相关表失败: %v", err)
 	}
 
 	tx := db.Begin()

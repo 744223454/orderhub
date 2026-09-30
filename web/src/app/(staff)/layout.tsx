@@ -43,6 +43,7 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
           <Typography.Text strong>多角色订单系统 · 管理端</Typography.Text>
           <NavLink href="/admin/orders">订单管理</NavLink>
           <NavLink href="/orders">我的订单</NavLink>
+          <NavLink href="/settings">账号设置</NavLink>
           <span style={{ marginLeft: 'auto' }}>
             <Button type="link" style={{ padding: 0 }} onClick={signOut}>
               退出登录

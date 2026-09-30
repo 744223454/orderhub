@@ -21,4 +21,13 @@ var (
 	ErrInvalidUsername = errors.New("用户名长度不合法")
 	// ErrInvalidPassword 密码长度不合法，错误文案中会附带具体要求。
 	ErrInvalidPassword = errors.New("密码长度不合法")
+	// ErrIdentityNotFound 外部身份尚未绑定任何账号。
+	// 仅供模块内部区分「未绑定」与数据库故障，不直接对外暴露。
+	ErrIdentityNotFound = errors.New("外部身份未绑定账号")
+	// ErrExternalIdentityExists 该外部身份已被其他账号绑定（接口层据此返回 409）。
+	ErrExternalIdentityExists = errors.New("该外部身份已被占用")
+	// ErrInvalidProvider 外部身份提供方不是预设的合法值。
+	ErrInvalidProvider = errors.New("无效的身份提供方")
+	// ErrInvalidExternalID 外部身份标识为空。
+	ErrInvalidExternalID = errors.New("无效的外部身份标识")
 )
