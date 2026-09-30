@@ -1,10 +1,10 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import Link from 'next/link';
 import { Button, Layout, Typography } from 'antd';
 
 import { AuthGuard } from '@/components/auth-guard';
+import { NavLink } from '@/components/nav-link';
 import { useSession } from '@/lib/auth';
 import type { Role } from '@/lib/types';
 
@@ -41,8 +41,8 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
           }}
         >
           <Typography.Text strong>多角色订单系统 · 管理端</Typography.Text>
-          <Link href="/admin/orders">订单管理</Link>
-          <Link href="/orders">我的订单</Link>
+          <NavLink href="/admin/orders">订单管理</NavLink>
+          <NavLink href="/orders">我的订单</NavLink>
           <span style={{ marginLeft: 'auto' }}>
             <Button type="link" style={{ padding: 0 }} onClick={signOut}>
               退出登录

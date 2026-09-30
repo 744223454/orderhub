@@ -1,11 +1,12 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import Link from 'next/link';
 import { Button, Layout, Typography } from 'antd';
 
 import { AuthGuard } from '@/components/auth-guard';
+import { NavLink } from '@/components/nav-link';
 import { useSession } from '@/lib/auth';
+import { isStaff } from '@/lib/roles';
 
 /**
  * 用户端布局。
@@ -18,7 +19,7 @@ import { useSession } from '@/lib/auth';
  * 「是不是运营 / 管理员」交给 (staff)/layout.tsx。
  */
 export default function UserLayout({ children }: { children: ReactNode }) {
-  const { signOut } = useSession();
+  const { session, signOut } = useSession();
 
   return (
     <AuthGuard>
@@ -34,7 +35,14 @@ export default function UserLayout({ children }: { children: ReactNode }) {
           }}
         >
           <Typography.Text strong>多角色订单系统</Typography.Text>
-          <Link href="/orders">我的订单</Link>
+          <NavLink href="/orders">我的订单</NavLink>
+          {/* 运营 / 管理员从管理端点「我的订单」过来后，这里必须留一条回去的路：
+              /orders 落在 (user) 路由组，渲染的是这一层布局，而它的导航里原本没有
+              管理端入口 —— 于是就成了单向门，只能靠浏览器回退。
+              判断依据直接复用 roles.ts 的 isStaff，与后端 RequireRole(admin, ops) 一致。 */}
+          {session !== null && isStaff(session.user.role) && (
+            <NavLink href="/admin/orders">订单管理</NavLink>
+          )}
           <span style={{ marginLeft: 'auto' }}>
             <Button type="link" style={{ padding: 0 }} onClick={signOut}>
               退出登录
