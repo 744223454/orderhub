@@ -30,4 +30,7 @@ var (
 	ErrInvalidProvider = errors.New("无效的身份提供方")
 	// ErrInvalidExternalID 外部身份标识为空。
 	ErrInvalidExternalID = errors.New("无效的外部身份标识")
+	// ErrLastAdmin 不允许把系统中最后一个管理员降级。
+	// 降级之后没有人能再进入用户管理把它改回来，系统只能靠手工改库恢复。
+	ErrLastAdmin = errors.New("不能降级最后一个管理员")
 )

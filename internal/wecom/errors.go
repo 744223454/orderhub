@@ -21,6 +21,17 @@ var (
 	// ErrCorpConfig 企业微信侧配置异常（CorpID / Secret / 可信域名 / 可信 IP 等）。
 	// 归属技术错误：调用方无法处理，接口层返回 500 并记录日志。
 	ErrCorpConfig = errors.New("企业微信配置异常")
+	// ErrRateLimited 接口调用频率超限（errcode 45009）。
+	//
+	// 与 ErrCorpConfig 分开的理由：它是**可重试的临时状态**而不是配置错误。
+	// 归成一类会让「等一分钟再来」这件事被表述成「配置异常，找运维」，
+	// 排查方向直接被带偏。通讯录读取上限约 600 次/分钟，靠 5 分钟缓存正常不会触发。
+	ErrRateLimited = errors.New("企业微信接口调用频率超限")
+	// ErrNoPermission 本应用无权读取该数据（errcode 60011）。
+	//
+	// 最常见的成因是自建应用的「可见范围」没把目标部门包含进去 ——
+	// 这时接口不会报「找不到」，而是报无权限。
+	ErrNoPermission = errors.New("企业微信应用无该数据的读取权限")
 	// ErrWecomUnavailable 调用企业微信接口失败：网络故障、响应无法解析，或未识别的错误码。
 	ErrWecomUnavailable = errors.New("企业微信接口不可用")
 )

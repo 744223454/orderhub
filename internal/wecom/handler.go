@@ -25,6 +25,9 @@ const (
 	stateTTL = 10 * time.Minute
 	// stateBytes 是 state 随机串的字节数。
 	stateBytes = 16
+	// retryAfterSeconds 是 429 响应里给客户端的重试建议（秒）。
+	// 企微的频率限制按分钟计（通讯录读取约 600 次/分钟），一分钟足够恢复。
+	retryAfterSeconds = "60"
 )
 
 // LoginFunc 用企业微信 userid 完成本地登录，返回已登录用户与访问令牌。
@@ -62,6 +65,9 @@ func respondWecomError(c *gin.Context, err error) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "授权状态校验失败，请重新发起登录"})
 	case errors.Is(err, ErrNotCorpMember):
 		c.JSON(http.StatusForbidden, gin.H{"error": "仅企业成员可使用企业微信登录"})
+	case errors.Is(err, ErrRateLimited):
+		c.Header("Retry-After", retryAfterSeconds)
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": "企业微信接口调用过于频繁，请稍后重试"})
 	case errors.Is(err, user.ErrExternalIdentityExists):
 		c.JSON(http.StatusConflict, gin.H{"error": "该企业微信已绑定其他账号"})
 	case errors.Is(err, user.ErrUserNotFound):
@@ -72,6 +78,65 @@ func respondWecomError(c *gin.Context, err error) {
 		_ = c.Error(err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "服务器内部错误"})
 	}
+}
+
+// respondDirectoryError 把通讯录接口的错误映射为 HTTP 响应。
+//
+// 与登录路径（respondWecomError）有两点不同，都是有意为之：
+//
+//  1. 这里把「配置异常」映射成 502 并给出**可操作**的提示。登录接口的调用方是
+//     匿名用户，告诉他「可信 IP 没配」既没用也等于暴露部署细节；而通讯录只有
+//     管理员能调，60020（可信 IP 变了）是最常见的故障，直接写出来他就能自己去修。
+//  2. 文案里点名了下一句该干什么（稍后重试 / 查可见范围 / 查可信 IP），
+//     不再是一句「服务器内部错误」。
+//
+// 无论走哪个分支，都绝不回显 err.Error()：企微的 errmsg 是英文，
+// 且可能带出 CorpID、出口 IP、内部接口路径。
+func respondDirectoryError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, ErrRateLimited):
+		c.Header("Retry-After", retryAfterSeconds)
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": "企业微信接口调用过于频繁，请稍后重试"})
+	case errors.Is(err, ErrNoPermission):
+		c.JSON(http.StatusBadGateway, gin.H{"error": "企业微信应用无权读取该通讯录，请检查应用的可见范围"})
+	case errors.Is(err, ErrCorpConfig):
+		c.JSON(http.StatusBadGateway, gin.H{"error": "企业微信配置异常，请检查应用可信 IP 与 Secret 是否仍然有效"})
+	case errors.Is(err, ErrWecomUnavailable):
+		c.JSON(http.StatusBadGateway, gin.H{"error": "企业微信接口暂时不可用，请稍后重试"})
+	default:
+		_ = c.Error(err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取企业通讯录失败"})
+	}
+}
+
+// Directory 获取企业通讯录（部门与成员都是扁平列表，树由前端组装）
+// @Summary 获取企业通讯录
+// @Tags 企业微信通讯录
+// @Produce json
+// @Param refresh query string false "传 1 则跳过服务端缓存重新抓取"
+// @Success 200 {object} DirectorySnapshot
+// @Failure 401 {object} map[string]string
+// @Failure 403 {object} map[string]string
+// @Failure 429 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Failure 502 {object} map[string]string
+// @Failure 503 {object} map[string]string
+// @Security BearerAuth
+// @Router /admin/org/directory [get]
+func (h *Handler) Directory(c *gin.Context) {
+	// 与扫码登录不同，本接口在「未配置企业微信」时依然注册（见 AdminRoutes 的说明），
+	// 因此这里必须挡住 nil：返回一句明确的 503，好过让前端收到 404 后只能显示「请求失败」。
+	if h.client == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "未配置企业微信，无法获取通讯录"})
+		return
+	}
+
+	snapshot, err := h.client.Directory(c.Request.Context(), c.Query("refresh") == "1")
+	if err != nil {
+		respondDirectoryError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, snapshot)
 }
 
 // authorizeResponse 是发起授权接口的返回载荷。

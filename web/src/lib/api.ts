@@ -8,12 +8,17 @@
 
 import { readToken } from './storage';
 import type {
+  AdminUser,
+  AdminUserPage,
   ApiErrorBody,
   CreateOrderRequest,
+  IdentityProvider,
   LoginRequest,
   LoginResponse,
   MeResponse,
   Order,
+  OrgDirectory,
+  UpdateUserRoleRequest,
   WecomAuthorizeResponse,
   WecomCallbackRequest,
   WecomIntent,
@@ -167,5 +172,52 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     });
+  },
+
+  /**
+   * 查询用户列表（仅管理员）。
+   *
+   * 分页与关键字都由后端处理：前端不做本地切片，否则总数、页码都会与后端对不上。
+   * 只传有值的参数，避免拼出 `?page=undefined` 这种被后端当非法值忽略掉的查询串。
+   */
+  listUsers(
+    params: { page?: number; pageSize?: number; keyword?: string } = {},
+  ): Promise<AdminUserPage> {
+    const query = new URLSearchParams();
+    if (params.page !== undefined) {
+      query.set('page', String(params.page));
+    }
+    if (params.pageSize !== undefined) {
+      query.set('page_size', String(params.pageSize));
+    }
+    if (params.keyword) {
+      query.set('keyword', params.keyword);
+    }
+    const suffix = query.toString();
+    return request<AdminUserPage>(`/api/admin/users${suffix === '' ? '' : `?${suffix}`}`);
+  },
+
+  /** 修改用户角色（仅管理员），返回更新后的用户。 */
+  updateUserRole(id: number, body: UpdateUserRoleRequest): Promise<AdminUser> {
+    return request<AdminUser>(`/api/admin/users/${id}/role`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    });
+  },
+
+  /** 解绑用户的外部身份（仅管理员）。解绑后该账号无法再用这种方式登录。 */
+  unbindUserIdentity(id: number, provider: IdentityProvider): Promise<void> {
+    return request<void>(`/api/admin/users/${id}/identities/${provider}`, { method: 'DELETE' });
+  },
+
+  /**
+   * 获取企业通讯录（仅管理员）。
+   *
+   * 返回的是**扁平**的部门与成员：树由前端组装。
+   * refresh 传 true 时带 `?refresh=1` 绕过服务端 5 分钟缓存 —— 只在用户主动点刷新时用，
+   * 首屏/切页一律走缓存，否则每打开一次页面就是几十次企微调用。
+   */
+  getOrgDirectory(refresh = false): Promise<OrgDirectory> {
+    return request<OrgDirectory>(`/api/admin/org/directory${refresh ? '?refresh=1' : ''}`);
   },
 };
