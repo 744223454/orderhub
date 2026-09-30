@@ -100,6 +100,16 @@ func TestRepoListByUser(t *testing.T) {
 	ctx := context.Background()
 	base := time.Now()
 
+	// 先清掉这两个用户在库里已有的订单，把断言的前提「恰好 2 条」坐实。
+	//
+	// 为什么必须清：用例跑在事务里，这里的删除会随回滚一起还原，动不到真实数据；
+	// 但不清的话，起点就取决于开发库里攒了什么 —— 手工测试留下的订单（user_id = 1）
+	// 会让这条用例突然变成 3 条而失败，且只在「本地跑过业务」的机器上复现。
+	// 用例不该依赖全局数据状态。
+	if err := repo.db.WithContext(ctx).Exec("DELETE FROM orders WHERE user_id IN (1, 2)").Error; err != nil {
+		t.Fatalf("清理预置数据失败: %v", err)
+	}
+
 	seed := []Order{
 		{UserID: 1, ProductName: "较早的订单", Amount: 100, Status: StatusPaid, CreatedAt: base.Add(-2 * time.Hour)},
 		{UserID: 1, ProductName: "较晚的订单", Amount: 200, Status: StatusPending, CreatedAt: base},
