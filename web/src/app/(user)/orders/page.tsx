@@ -1,40 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Button, Card, Form, Input, InputNumber, Space, Table, Tag, Typography } from 'antd';
 import type { TableProps } from 'antd';
+import { Alert, Button, Card, Form, Input, InputNumber, Space, Table, Typography } from 'antd';
 
+import { OrderStatusTag } from '@/components/order-status-tag';
 import { api, ApiError } from '@/lib/api';
+import { formatAmount } from '@/lib/format';
 import type { Order, OrderStatus } from '@/lib/types';
-
-/**
- * 订单状态的展示映射。
- *
- * 用 Record<OrderStatus, ...> 而不是普通对象：将来后端加了新状态、
- * types.ts 的 OrderStatus 跟着扩了联合类型，这里漏填会**直接编译报错**，
- * 不会静默显示成空白。
- */
-const STATUS_META: Record<OrderStatus, { text: string; color: string }> = {
-  pending: { text: '待支付', color: 'default' }, // TODO: color 由你定（可选预设：default / processing / success / warning / error）
-  paid: { text: '已支付', color: 'default' },
-  shipped: { text: '已发货', color: 'default' },
-  completed: { text: '已完成', color: 'default' },
-  refunded: { text: '已退款', color: 'default' },
-};
-
-/**
- * 把「分」格式化成「元」。
- *
- * 金额在后端一律是整数分（见 internal/order/model.go 的 Amount 注释），
- * 只在展示这一刻换算。
- */
-function formatAmount(amount: number): string {
-  // TODO: 由你实现。两个坑：
-  //  1. 不要用浮点累加（0.1 + 0.2），也不要对 money 做浮点运算后再比较；
-  //  2. 单纯展示用 (amount / 100).toFixed(2) 就够；想更严谨可用整数运算：
-  //     `${Math.trunc(amount / 100)}.${String(amount % 100).padStart(2, '0')}`
-  return `${Math.trunc(amount / 100)}.${String(amount % 100).padStart(2, '0')} 元`;
-}
 
 /**
  * 新建订单表单的字段。
@@ -75,18 +48,27 @@ export default function MyOrdersPage() {
    * 首屏加载、以及「状态已被别处改过」时重新拉取，都走同一个入口。
    */
   const loadOrders = useCallback(async (): Promise<void> => {
-    // TODO: 由你实现。步骤：
-    //   try { setOrders(await api.listMyOrders()); setLoadError(null); }
-    //   catch (e) { setLoadError(e instanceof ApiError ? e.message : '加载订单失败'); }
-    // 后端已把空列表兜底成 []（handler.go 的 emptyIfNil），所以这里不会拿到 null。
-    //
-    // 小技巧：把 setState **都放在 await 之后**（清空错误也放那儿），
-    // 连 react-hooks/set-state-in-effect 的黄字警告都不会有。
-    // 那个规则在本项目已被降级为 warn（见 web/eslint.config.mjs 末尾的说明），
-    // 所以就算写在前面也只是提醒、不会挡住提交。
+    try {
+      // 后端已把空列表兜底成 []（handler.go 的 emptyIfNil），
+      // 所以这里不会拿到 null，不需要 `?? []` 这类防御。
+      setOrders(await api.listMyOrders());
+      // 成功时顺手清掉上次的错误，否则「重试成功」之后旧的红色横幅还挂在页面上。
+      setLoadError(null);
+    } catch (e) {
+      setLoadError(e instanceof ApiError ? e.message : '加载订单失败');
+    }
   }, []);
 
   // 首屏加载。loadOrders 被 useCallback 固定了引用，所以这个 effect 只会跑一次。
+  //
+  // ⚠️ 这里会触发一条 react-hooks/set-state-in-effect 的 warn，是**预期**的，不是漏改：
+  //    该规则顺着调用链看到「effect 调用的函数里有 setState」就报，**与 setState 排在
+  //    第几行、在不在 await 之后都无关**（2026-09-30 实测：同样写在 await 之后，
+  //    effect 内 async IIFE 不报、useCallback + effect 调用则报）。
+  //    规则已在本项目降级为 warn（见 web/eslint.config.mjs 末尾）。
+  //    之所以接受这条 warn 而不是把取数塞回 effect 里写成 IIFE——因为 loadOrders 要被
+  //    handlePay 的 409 分支复用（「状态被别处改过」时重拉），为消一条警告把取数逻辑
+  //    复制两遍并不划算。
   useEffect(() => {
     void loadOrders();
   }, [loadOrders]);
@@ -95,36 +77,62 @@ export default function MyOrdersPage() {
    * 新建订单。表单校验通过后触发。
    */
   async function handleCreate(values: CreateOrderFormValues): Promise<void> {
-    // TODO: 由你实现。要点：
-    //  1. 置 creating = true、清空 actionError；
-    //  2. **单位换算**：amount 从「元」换成「分」再发请求。
-    //     const created = await api.createOrder({
-    //       product_name: values.product_name,
-    //       amount: Math.round(values.amount * 100),   // ← 必须四舍五入
-    //     });
-    //     ⚠️ 别漏 Math.round：19.99 * 100 在 JS 里等于 1998.9999999999998，
-    //        后端收到 1998（少一分）不会报错，但金额就错了。
-    //  3. 把 created 追加进列表：setOrders((prev) => [...(prev ?? []), created]);
-    //  4. catch：ApiError 的 message 直接展示即可（后端给的是中文）；
-    //     其他错误统一 '创建订单失败，请稍后重试'；
-    //  5. finally：creating = false；成功时 form.resetFields()。
+    if (creating) return;
+    setCreating(true);
+    setActionError(null);
+    try {
+      const created = await api.createOrder({
+        product_name: values.product_name,
+        // 单位换算：表单收的是「元」，后端要的是「分」。
+        // ⚠️ Math.round 不能省：19.99 * 100 在 IEEE 754 下等于 1998.9999999999998，
+        //    截断后后端收到 1998，不报错但金额静默少一分。
+        amount: Math.round(values.amount * 100),
+      });
+      // 插到队首而不是追加：仓库层 ListByUser 按 created_at DESC 返回（最新在前），
+      // 追加会让新单排在列表末尾，条数超过一页时用户根本看不见自己刚下的单。
+      setOrders((prev) => [created, ...(prev ?? [])]);
+      // 只在成功时清空：失败时保留用户已填内容，别让人重打一遍。
+      form.resetFields();
+    } catch (e) {
+      // 创建失败属于「行内操作错误」，显示在操作区；loadError 专管整页加载失败。
+      setActionError(e instanceof ApiError ? e.message : '创建订单失败，请稍后重试');
+    } finally {
+      setCreating(false);
+    }
   }
 
   /**
    * 支付某笔订单（pending → paid）。
    */
   async function handlePay(id: number): Promise<void> {
-    // TODO: 由你实现。要点：
-    //  1. 置 payingId = id、清空 actionError；
-    //  2. const updated = await api.payOrder(id);
-    //     然后用返回值**局部替换**那一条（比整表重拉更好，后端流转是 CAS，返回的 Order 是权威值）：
-    //     setOrders((prev) => prev?.map((o) => (o.id === id ? updated : o)) ?? null);
-    //  3. catch 要**分开处理**（err instanceof ApiError 时可读 err.status）：
-    //      409「订单当前状态不允许该操作」→ 状态已被别处改过（另一个标签页 / 管理端刚操作），
-    //          提示用户并重新拉一次列表（直接 `await loadOrders()`，这就是把它抽成函数的原因）；
-    //      404「订单不存在」→ 注意：后端对**越权访问他人订单**是故意返回 404 的
-    //          （防 ID 枚举，见 internal/order/service.go），别提示成「订单没了」；
-    //  4. finally：payingId = null。
+    setPayingId(id);
+    setActionError(null);
+    try {
+      const updated = await api.payOrder(id);
+      // 局部替换那一条，而不是重拉整张表：后端流转是 CAS，
+      // 返回的 Order 就是这次操作的权威值。
+      // ⚠️ 别写成 [...prev, updated]——原行还在、又追加一条同 id 的记录，
+      //    rowKey="id" 撞 key，React 会报 duplicate key，表格行为变得诡异。
+      setOrders((prev) => prev?.map((o) => (o.id === id ? updated : o)) ?? null);
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409) {
+        // 状态已被别处改过（另一个标签页 / 管理端刚操作过这张单）。
+        // 先提示、再重拉，让用户看到真实状态——这正是 loadOrders 抽成函数的原因。
+        setActionError('订单状态已变化，已为你刷新列表');
+        await loadOrders();
+      } else if (e instanceof ApiError) {
+        // 这里的 404 有两种来源：订单真的不存在，或**越权操作他人订单**——
+        // 后端故意不区分（防 ID 枚举，见 internal/order/service.go 的 findForUser），
+        // 所以文案直接用后端给的「订单不存在」，不要自作主张写成「订单已被删除」。
+        setActionError(e.message);
+      } else {
+        // 网络中断、响应体不是 JSON 等非 ApiError：必须兜底。
+        // 少了这一支，用户点了「支付」就是毫无反馈——最难排查的那种 bug。
+        setActionError('支付失败，请稍后重试');
+      }
+    } finally {
+      setPayingId(null);
+    }
   }
 
   /**
@@ -146,9 +154,9 @@ export default function MyOrdersPage() {
       title: '状态',
       dataIndex: 'status',
       width: 110,
-      render: (status: OrderStatus) => (
-        <Tag color={STATUS_META[status].color}>{STATUS_META[status].text}</Tag>
-      ),
+      // 文案与配色统一在 lib/order-status.ts 里，管理端用的是同一个组件，
+      // 两页不会出现「文案一样、颜色不一样」这种分叉。
+      render: (status: OrderStatus) => <OrderStatusTag status={status} />,
     },
     {
       title: '创建时间',
