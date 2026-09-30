@@ -14,6 +14,9 @@ import type {
   LoginResponse,
   MeResponse,
   Order,
+  WecomAuthorizeResponse,
+  WecomCallbackRequest,
+  WecomIntent,
 } from './types';
 
 /**
@@ -135,5 +138,34 @@ export const api = {
   /** 退款（paid / shipped → refunded，仅运营 / 管理员）。 */
   refundOrder(id: number): Promise<Order> {
     return request<Order>(`/api/admin/orders/${id}/refund`, { method: 'POST' });
+  },
+
+  /**
+   * 获取企业微信扫码登录链接。
+   *
+   * 后端在此接口里同时种下 HttpOnly 的 state Cookie，页面读不到也不需要读——
+   * 回调换票时浏览器会自动带上它。
+   */
+  wecomAuthorize(intent: WecomIntent): Promise<WecomAuthorizeResponse> {
+    return request<WecomAuthorizeResponse>(`/api/auth/wecom/authorize?intent=${intent}`);
+  },
+
+  /**
+   * 企业微信扫码登录：用回调页地址栏里的授权码换访问令牌。
+   * 返回形状与密码登录一致，可直接交给 signIn。
+   */
+  wecomLogin(body: WecomCallbackRequest): Promise<LoginResponse> {
+    return request<LoginResponse>('/api/auth/wecom/login', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+
+  /** 把企业微信身份绑定到当前登录账号（需已登录，token 由 request 自动带上）。 */
+  wecomBind(body: WecomCallbackRequest): Promise<void> {
+    return request<void>('/api/auth/wecom/bind', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
   },
 };

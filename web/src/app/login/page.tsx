@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Alert, Button, Card, Form, Input, Typography } from 'antd';
+import { Alert, Button, Card, Divider, Form, Input, Typography } from 'antd';
 import type { LoginRequest } from '@/lib/types';
 import { api, ApiError } from '@/lib/api';
 import { useSession } from '@/lib/auth';
@@ -22,6 +22,9 @@ export default function LoginPage() {
   // 防重复提交必须用 state（或 useRef）——普通局部变量每次调用都是全新的 false，
   // 既拦不住连点，也没法驱动按钮的 loading 态。
   const [submitting, setSubmitting] = useState(false);
+  // 企业微信登录是「跳走」型操作，与表单提交互不影响，因此单独一份 loading 状态，
+  // 免得点它把密码登录的按钮也一起变成加载中。
+  const [wecomStarting, setWecomStarting] = useState(false);
   // 这两个 Hook 必须在组件函数体顶层调用，不能挪进 handleFinish：
   // Hook 依赖 React 在渲染期间才设置的 dispatcher，渲染之外调用会直接抛
   // `Invalid hook call`（实测细节见下方 handleFinish 的注释）。
@@ -57,6 +60,28 @@ export default function LoginPage() {
       setError(e instanceof ApiError ? e.message : '登录失败，请稍后重试');
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  /**
+   * 发起企业微信扫码登录。
+   *
+   * 成功时**不重置 loading**：浏览器马上要离开这个页面，按钮保持加载中才是正确反馈；
+   * 只有取授权链接失败（走不掉）时才需要恢复可点。
+   *
+   * 用 window.location.href 而不是 fetch：目标是企微自己的授权页，
+   * 属于整页跳转，fetch 既拿不到那个页面，也不会把用户带过去。
+   */
+  async function handleWecomLogin(): Promise<void> {
+    if (wecomStarting) return;
+    setError(null);
+    setWecomStarting(true);
+    try {
+      const { url } = await api.wecomAuthorize('login');
+      window.location.href = url;
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : '企业微信登录发起失败，请稍后重试');
+      setWecomStarting(false);
     }
   }
 
@@ -107,11 +132,21 @@ export default function LoginPage() {
           </Form.Item>
         </Form>
 
+        <Divider plain style={{ margin: '20px 0', fontSize: 12 }}>
+          或
+        </Divider>
+
+        <Button block loading={wecomStarting} onClick={() => void handleWecomLogin()}>
+          企业微信登录
+        </Button>
+
         <Typography.Paragraph
           type="secondary"
           style={{ marginTop: 16, marginBottom: 0, fontSize: 12 }}
         >
           本地开发账号：admin / admin（角色 admin）
+          <br />
+          企业微信登录需从 http://dev.orderhub.local:3000 进入（企微只认配置好的授权回调域）
         </Typography.Paragraph>
       </Card>
     </main>

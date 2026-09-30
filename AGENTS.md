@@ -143,6 +143,9 @@
 - `go test ./...` 运行全部测试。
   仓库层集成测试连真实 PostgreSQL（从 `.env` 读 `DATABASE_URL`），每个用例在独立事务中运行、
   结束时回滚，用例之间互不污染；未配置 `DATABASE_URL` 时自动跳过。
+- `swag init -g cmd/server/main.go -o docs --parseDependency --exclude web,server-node` 重新生成
+  swagger 文档。`--exclude` 不能省：`web/node_modules` 下混着 Go 源码，不排除会被扫进文档；
+  `--parseDependency` 也建议保留，否则生成的 definitions 前缀会变，docs 会凭空多出一大段 diff。
 
 前端（在 `web/` 目录执行）：
 

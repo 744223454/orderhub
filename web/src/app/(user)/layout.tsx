@@ -43,6 +43,9 @@ export default function UserLayout({ children }: { children: ReactNode }) {
           {session !== null && isStaff(session.user.role) && (
             <NavLink href="/admin/orders">订单管理</NavLink>
           )}
+          {/* 账号设置（绑定企业微信）挂在用户端导航里；管理端布局也放了同一个入口，
+              免得管理员在两套导航间来回时又变成「单向门」。 */}
+          <NavLink href="/settings">账号设置</NavLink>
           <span style={{ marginLeft: 'auto' }}>
             <Button type="link" style={{ padding: 0 }} onClick={signOut}>
               退出登录

@@ -12,6 +12,22 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
 
   /**
+   * 允许通过自定义本地域名访问 dev server。
+   *
+   * 为什么需要：企业微信的「授权回调域」不接受 localhost（它要求域名带点，
+   * 实测 `localhost:3000` 会报"请填写正确的域名地址"），所以本地开发把回调域配成了
+   * `dev.orderhub.local:3000`，并在 /etc/hosts 里把它指向 127.0.0.1。
+   *
+   * 而 Next 15.3 起 dev server 会校验请求来源：非白名单 origin 的 **HMR WebSocket 会被拒**
+   * （实测现象：页面、样式、脚本都能正常加载，但
+   * `ws://dev.orderhub.local:3000/_next/hmr` 握手失败，报 ERR_INVALID_HTTP_RESPONSE，
+   * 热更新失效、每次改代码都要手动刷新）。
+   *
+   * 只影响 dev：生产模式（next start）不做这项来源校验。
+   */
+  allowedDevOrigins: ['dev.orderhub.local'],
+
+  /**
    * 把浏览器发往 /api/* 的请求代理到 Go 后端。
    *
    * 为什么这么做：

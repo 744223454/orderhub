@@ -61,3 +61,25 @@ export interface CreateOrderRequest {
 export interface ApiErrorBody {
   error: string;
 }
+
+/**
+ * 企业微信授权的用途。
+ *
+ * login：扫码后登录，该企业微信身份没绑过账号就自动建一个普通账号；
+ * bind：扫码后把该身份绑定到当前登录的账号（管理员、运营这样把自己的账号挂上去）。
+ */
+export type WecomIntent = 'login' | 'bind';
+
+/** 获取企业微信扫码登录链接的返回，对应 GET /api/auth/wecom/authorize。 */
+export interface WecomAuthorizeResponse {
+  /** 企业微信扫码登录页地址。必须整页跳转到它，不能 fetch。 */
+  url: string;
+}
+
+/** 企业微信回调参数，对应 POST /api/auth/wecom/login 与 POST /api/auth/wecom/bind。 */
+export interface WecomCallbackRequest {
+  /** 企微回调带回的授权码，只能用一次、5 分钟过期。 */
+  code: string;
+  /** 发起授权时下发的状态串，后端用它比对 Cookie 以防范 CSRF。 */
+  state: string;
+}
