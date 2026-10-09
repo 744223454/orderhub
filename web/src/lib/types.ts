@@ -33,6 +33,22 @@ export interface Order {
   updated_at: string;
 }
 
+/**
+ * 订单列表的分页响应，对应 GET /api/orders 与 GET /api/admin/orders。
+ *
+ * 字段与 AdminUserPage 刻意保持一致 —— 两个列表接口形状统一，
+ * 前端才能复用同一套分页状态与组件。
+ */
+export interface OrderPage {
+  items: Order[];
+  /** 满足条件的订单总数，用于算总页数。 */
+  total: number;
+  /** 生效后的页码（入参越界时后端会回落，所以以后端回显的为准）。 */
+  page: number;
+  /** 生效后的每页条数。 */
+  page_size: number;
+}
+
 /** 登录请求体，对应 POST /api/login。 */
 export interface LoginRequest {
   username: string;

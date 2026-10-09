@@ -7,7 +7,7 @@ import { Alert, Button, Card, Space, Table, Typography } from 'antd';
 import { OrderStatusTag } from '@/components/order-status-tag';
 import { api, ApiError } from '@/lib/api';
 import { formatAmount } from '@/lib/format';
-import type { Order, OrderStatus } from '@/lib/types';
+import type { Order, OrderPage, OrderStatus } from '@/lib/types';
 
 /** 管理端对订单可执行的三种流转操作，与 ACTION_META 的键一一对应。 */
 type AdminAction = 'ship' | 'complete' | 'refund';
@@ -45,15 +45,15 @@ const ACTION_META: Record<AdminAction, { label: string; run: (id: number) => Pro
  * 后端 /api/admin/* 全部要求 admin 或 ops 角色，
  * 角色不符时后端返回 403，前端由 (staff)/layout.tsx 的守卫提前拦下。
  *
- * 骨架与 (user)/orders/page.tsx 同源，差别只有两处：
+ * 与 (user)/orders/page.tsx 同源，差别只有两处：
  *   1. 取数用 api.listAllOrders()（全量订单），不是 api.listMyOrders()；
- *   2. 「操作」列要按行内状态，给出**后端此刻真正允许**的流转操作。
- * 第 2 条是本页唯一需要你手写判断的地方，规则与坑写在 columns 的「操作」列注释里。
+ *   2. 「操作」列按行内状态，给出**后端此刻真正允许**的流转操作。
  */
 export default function AdminOrdersPage() {
   // 与用户端同款：用 null 表示「首屏还没加载完」，loading 由 orders === null 直接算出来，
   // 不必再额外维护一个 boolean state 去和真实数据保持同步（两者迟早会不同步）。
-  const [orders, setOrders] = useState<Order[] | null>(null);
+  const [orders, setOrders] = useState<OrderPage | null>(null);
+  const [page, setPage] = useState(1);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   // 行内操作的状态与错误，与整页加载分开：否则点一次发货，整张表都会变成 loading。
@@ -62,28 +62,36 @@ export default function AdminOrdersPage() {
   const [actionError, setActionError] = useState<string | null>(null);
 
   /**
-   * 拉取全量订单。
+   * 拉取订单列表（当前页）。
    *
    * 抽成函数而不是把取数直接写进 effect，是为了让「行内操作撞上 409」时能复用同一个入口重拉
    * ——订单可能已被另一个标签页 / 另一位管理员改过，手上这一条已经不新鲜了。
+   * 依赖数组里的 page 一变化，函数引用就变，effect 随之重跑 —— 翻页取数由此驱动。
    */
   const loadOrders = useCallback(async (): Promise<void> => {
     try {
       // 后端已把空列表兜底成 []，所以这里不会拿到 null，不需要 `?? []` 这类防御。
-      setOrders(await api.listAllOrders());
+      setOrders(await api.listAllOrders({ page }));
       // 成功时顺手清掉上次的加载错误，否则重试成功之后旧的红色横幅还挂在页面上。
       setLoadError(null);
     } catch (e) {
       setLoadError(e instanceof ApiError ? e.message : '加载订单失败');
     }
-  }, []);
+  }, [page]);
 
   async function handleAction(id: number, action: AdminAction): Promise<void> {
     setActingId(id);
     setActionError(null);
     try {
       const updated = await ACTION_META[action].run(id);
-      setOrders((prev) => prev?.map((o) => (o.id === id ? updated : o)) ?? null);
+      // 局部替换那一行（信封结构：用 ...prev 把 items 之外的字段展开回去）。
+      // 不必为「请求期间翻页、map 找不到该行」加兜底——那时用户在看别的页，
+      // 翻回来会重新拉取；同页等待的场景下该行必然在本页，一定能替换到。
+      setOrders((prev) =>
+        prev === null
+          ? null
+          : { ...prev, items: prev.items.map((o) => (o.id === id ? updated : o)) },
+      );
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) {
         setActionError('状态已变化，正在拉取最新数据');
@@ -98,7 +106,7 @@ export default function AdminOrdersPage() {
     }
   }
 
-  // 首屏加载。loadOrders 被 useCallback 固定了引用，所以这个 effect 只会跑一次。
+  // 首屏加载与翻页都走这里：loadOrders 的引用随 page 变化，effect 依赖它而重跑。
   //
   // ⚠️ 这会触发一条 react-hooks/set-state-in-effect 的 warn，是**预期**的、不是漏改：
   //    该规则已在本项目降级为 warn（web/eslint.config.mjs 末尾），原因与用户端页相同，
@@ -200,11 +208,17 @@ export default function AdminOrdersPage() {
         rowKey="id"
         columns={columns}
         // orders 为 null 时给空数组，Table 才不会因为 dataSource 是 null 而崩。
-        dataSource={orders ?? []}
+        dataSource={orders?.items ?? []}
         // loading 由「数据是否到位」直接算出来，不用额外的 state 去同步。
         loading={orders === null}
-        // 后端 /api/admin/orders 目前是全量返回、没有分页参数，所以这里只是前端分页；
-        // 数据量大了要改成后端分页（属于后续「业务纵深」的一部分）。
+        // 分页状态以后端回显为准：入参越界时后端会回落，前端跟着它走就不会错位。
+        pagination={{
+          current: orders?.page ?? 1,
+          pageSize: orders?.page_size ?? 20,
+          total: orders?.total ?? 0,
+          showSizeChanger: false,
+        }}
+        onChange={(pagination) => setPage(pagination.current ?? 1)}
       />
     </Card>
   );
