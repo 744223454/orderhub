@@ -251,6 +251,46 @@ func toAdminUserViews(users []User, identities map[uint][]UserIdentity) []adminU
 	return views
 }
 
+type adminCreateUserRequest struct {
+	Username string `json:"username" binding:"required"`
+	Password string `json:"password" binding:"required"`
+	// Role 目标角色，取值与 user.Role 一致（user / ops / admin）。
+	Role string `json:"role" binding:"required"`
+}
+
+// AdminCreateUser 管理员建号
+// @Summary 创建用户（仅管理员）
+// @Tags 用户管理
+// @Accept json
+// @Produce json
+// @Param request body adminCreateUserRequest true "新用户信息"
+// @Success 200 {object} adminUserView
+// @Failure 400 {object} map[string]string
+// @Failure 409 {object} map[string]string
+// @Security BearerAuth
+// @Router /admin/users [post]
+func (h *Handler) AdminCreateUser(c *gin.Context) {
+	// TODO(怀民): 实现管理员建号。要点：
+	//  1. 绑定请求体，失败返回 400「请求参数不合法」（与 Register 一致，不透传 gin 的英文绑定错误）；
+	//  2. 调服务层 Register 建号 —— 角色合法性、用户名 / 密码长度、用户名重复（409）
+	//     都由服务层原地判定，handler 不要重复校验；
+	//  3. 错误统一交给 respondUserError 映射；
+	//  4. 成功返回 adminUserView（可复用 toAdminUserViews），不签发令牌 —— 建号不是登录。
+	// 实现完成后删除下面这行占位响应。
+	var req adminCreateUserRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数不合法"})
+		return
+	}
+
+	created, err := h.service.Register(c.Request.Context(), req.Username, req.Password, Role(req.Role))
+	if err != nil {
+		respondUserError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, toAdminUserViews([]User{*created}, nil)[0])
+}
+
 // ListUsers 用户列表（管理端）
 // @Summary 查询用户列表（仅管理员）
 // @Tags 用户管理

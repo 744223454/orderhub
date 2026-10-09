@@ -379,6 +379,60 @@ const docTemplate = `{
                         }
                     }
                 }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "用户管理"
+                ],
+                "summary": "创建用户（仅管理员）",
+                "parameters": [
+                    {
+                        "description": "新用户信息",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_user.adminCreateUserRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_user.adminUserView"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
             }
         },
         "/admin/users/{id}/identities/{provider}": {
@@ -1179,6 +1233,26 @@ const docTemplate = `{
                 },
                 "updated_at": {
                     "description": "UpdatedAt 最后更新时间。",
+                    "type": "string"
+                }
+            }
+        },
+        "internal_user.adminCreateUserRequest": {
+            "type": "object",
+            "required": [
+                "password",
+                "role",
+                "username"
+            ],
+            "properties": {
+                "password": {
+                    "type": "string"
+                },
+                "role": {
+                    "description": "Role 目标角色，取值与 user.Role 一致（user / ops / admin）。",
+                    "type": "string"
+                },
+                "username": {
                     "type": "string"
                 }
             }

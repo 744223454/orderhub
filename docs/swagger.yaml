@@ -132,6 +132,20 @@ definitions:
         description: UpdatedAt 最后更新时间。
         type: string
     type: object
+  internal_user.adminCreateUserRequest:
+    properties:
+      password:
+        type: string
+      role:
+        description: Role 目标角色，取值与 user.Role 一致（user / ops / admin）。
+        type: string
+      username:
+        type: string
+    required:
+    - password
+    - role
+    - username
+    type: object
   internal_user.adminUserView:
     properties:
       created_at:
@@ -579,6 +593,40 @@ paths:
       security:
       - BearerAuth: []
       summary: 查询用户列表（仅管理员）
+      tags:
+      - 用户管理
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: 新用户信息
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_user.adminCreateUserRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_user.adminUserView'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 创建用户（仅管理员）
       tags:
       - 用户管理
   /admin/users/{id}/identities/{provider}:
