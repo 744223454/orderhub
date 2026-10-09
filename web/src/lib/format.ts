@@ -14,5 +14,9 @@
  * 不会出现浮点尾数，也不依赖任何舍入规则。
  */
 export function formatAmount(amount: number): string {
-  return `${Math.trunc(amount / 100)}.${String(amount % 100).padStart(2, '0')} 元`;
+  const sign = amount < 0 ? '-' : '';
+  const n = Math.trunc(Math.abs(amount));
+  const quo = Math.floor(n / 100);
+  const decimal = String(n % 100).padStart(2, '0');
+  return `${sign}${quo}.${decimal} 元`;
 }
