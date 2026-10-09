@@ -15,6 +15,27 @@ const (
 	productNameMaxLen = 128
 )
 
+// 分页相关常量。取值与 user 包的 defaultUserPageSize / maxUserPageSize 保持一致，
+// 两个列表接口的口径统一，前端才能复用同一套分页逻辑。
+const (
+	// defaultOrderPageSize 是订单列表的默认每页条数。
+	defaultOrderPageSize = 20
+	// maxOrderPageSize 是每页条数上限，防止调用方一次把整张表拖走。
+	maxOrderPageSize = 100
+)
+
+// OrderPage 是一页订单查询结果。
+type OrderPage struct {
+	// Orders 当前页的订单。
+	Orders []Order
+	// Total 满足条件的订单总数（不受分页限制）。
+	Total int64
+	// Page 生效后的页码，从 1 开始。
+	Page int
+	// PageSize 生效后的每页条数。
+	PageSize int
+}
+
 // Service 承载订单模块的业务逻辑。
 type Service struct {
 	repo *Repo
@@ -47,14 +68,55 @@ func (s *Service) CreateOrder(ctx context.Context, userID uint, productName stri
 	return order, nil
 }
 
-// ListUserOrders 查询指定用户的全部订单。
-func (s *Service) ListUserOrders(ctx context.Context, userID uint) ([]Order, error) {
-	return s.repo.ListByUser(ctx, userID)
+// ListUserOrders 分页查询指定用户的订单。
+// 非法分页参数一律回落到默认值，不报错——列表接口不值得让调用方因为「页码写错」失败一次。
+func (s *Service) ListUserOrders(ctx context.Context, userID uint, page, pageSize int) (*OrderPage, error) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = defaultOrderPageSize
+	}
+	if pageSize > maxOrderPageSize {
+		pageSize = maxOrderPageSize
+	}
+
+	orders, total, err := s.repo.ListByUser(ctx, userID, (page-1)*pageSize, pageSize)
+	if err != nil {
+		return nil, err
+	}
+
+	return &OrderPage{
+		Orders:   orders,
+		Total:    total,
+		Page:     page,
+		PageSize: pageSize,
+	}, nil
 }
 
-// ListAllOrders 查询全部订单（管理端使用）。
-func (s *Service) ListAllOrders(ctx context.Context) ([]Order, error) {
-	return s.repo.ListAll(ctx)
+// ListAllOrders 分页查询全部订单（管理端使用）。参数回落规则与 ListUserOrders 相同。
+func (s *Service) ListAllOrders(ctx context.Context, page, pageSize int) (*OrderPage, error) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = defaultOrderPageSize
+	}
+	if pageSize > maxOrderPageSize {
+		pageSize = maxOrderPageSize
+	}
+
+	orders, total, err := s.repo.ListAll(ctx, (page-1)*pageSize, pageSize)
+	if err != nil {
+		return nil, err
+	}
+
+	return &OrderPage{
+		Orders:   orders,
+		Total:    total,
+		Page:     page,
+		PageSize: pageSize,
+	}, nil
 }
 
 // PayOrder 用户支付自己的订单（pending → paid）。

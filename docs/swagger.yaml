@@ -80,6 +80,23 @@ definitions:
     - amount
     - product_name
     type: object
+  internal_order.listOrdersResponse:
+    properties:
+      items:
+        description: Items 当前页的订单。
+        items:
+          $ref: '#/definitions/internal_order.Order'
+        type: array
+      page:
+        description: Page 生效后的页码，从 1 开始。
+        type: integer
+      page_size:
+        description: PageSize 生效后的每页条数。
+        type: integer
+      total:
+        description: Total 满足条件的订单总数（不受分页限制）。
+        type: integer
+    type: object
   internal_user.IdentityProvider:
     enum:
     - wecom
@@ -335,15 +352,22 @@ info:
 paths:
   /admin/orders:
     get:
+      parameters:
+      - description: 页码，从 1 开始（默认 1）
+        in: query
+        name: page
+        type: integer
+      - description: 每页条数（默认 20，上限 100）
+        in: query
+        name: page_size
+        type: integer
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            items:
-              $ref: '#/definitions/internal_order.Order'
-            type: array
+            $ref: '#/definitions/internal_order.listOrdersResponse'
         "403":
           description: Forbidden
           schema:
@@ -352,7 +376,7 @@ paths:
             type: object
       security:
       - BearerAuth: []
-      summary: 查询全部订单（仅运营/管理员）
+      summary: 查询全部订单（仅运营/管理员，分页）
       tags:
       - 订单管理
   /admin/orders/{id}/complete:
@@ -809,15 +833,22 @@ paths:
       - 用户
   /orders:
     get:
+      parameters:
+      - description: 页码，从 1 开始（默认 1）
+        in: query
+        name: page
+        type: integer
+      - description: 每页条数（默认 20，上限 100）
+        in: query
+        name: page_size
+        type: integer
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            items:
-              $ref: '#/definitions/internal_order.Order'
-            type: array
+            $ref: '#/definitions/internal_order.listOrdersResponse'
         "401":
           description: Unauthorized
           schema:
@@ -826,7 +857,7 @@ paths:
             type: object
       security:
       - BearerAuth: []
-      summary: 查询自己的订单列表
+      summary: 查询自己的订单列表（分页）
       tags:
       - 订单
     post:

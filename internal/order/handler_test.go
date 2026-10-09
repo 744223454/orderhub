@@ -2,6 +2,7 @@ package order
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -127,32 +128,110 @@ func TestHandlerUnauthorized(t *testing.T) {
 	}
 }
 
-// TestHandlerListMyOrdersEmptyReturnsArray 锁定「空列表输出 [] 而非 null」这一约定。
-// 仓库层查不到数据时返回 nil 切片，直接序列化会得到 null，前端 .map() 会抛错。
-func TestHandlerListMyOrdersEmptyReturnsArray(t *testing.T) {
-	service := NewService(setupTestRepo(t))
-	router := newTestRouter(NewHandler(service), 999, true)
+// TestHandlerListOrdersPaginationEnvelope 锁定分页接口的返回形状。
+//
+// 两个列表接口必须与 user 的 /admin/users 完全一致（items/total/page/page_size）——
+// 形状不统一前端就没法复用同一套分页组件，这条用例就是防这个的。
+//
+// 顺带锁住「空列表输出 [] 而非 null」：前端对 null 调用 .map() 会抛错。
+// ⚠️ 「空列表」只在**确定为空**的用户端断言（先用事务内 DELETE 自证空）；
+// 管理端查的是全表，开发库里必有已提交的数据，只锁「items 是数组、绝不为 null」。
+func TestHandlerListOrdersPaginationEnvelope(t *testing.T) {
+	// envelope 是两个子用例共用的信封结构。
+	type envelope struct {
+		Items    json.RawMessage `json:"items"`
+		Total    *int64          `json:"total"`
+		Page     *int            `json:"page"`
+		PageSize *int            `json:"page_size"`
+	}
 
-	rec := doJSON(t, router, http.MethodGet, "/orders", "")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("期望 200，实际 %d", rec.Code)
-	}
-	if got := strings.TrimSpace(rec.Body.String()); got != "[]" {
-		t.Errorf("空列表应序列化为 []，实际: %s", got)
-	}
+	t.Run("我的订单（空列表输出 []）", func(t *testing.T) {
+		service := NewService(setupTestRepo(t))
+		// 先把该用户的订单清掉，让「空列表」这个前提由测试自己保证，
+		// 而不是赌开发库里恰好没有他这个用户的订单。
+		if err := service.repo.db.WithContext(context.Background()).
+			Exec("DELETE FROM orders WHERE user_id = 999").Error; err != nil {
+			t.Fatalf("清理预置数据失败: %v", err)
+		}
+		router := newTestRouter(NewHandler(service), 999, true)
+
+		rec := doJSON(t, router, http.MethodGet, "/orders", "")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("期望 200，实际 %d", rec.Code)
+		}
+
+		var body envelope
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatalf("响应不是合法 JSON: %v，原始: %s", err, rec.Body.String())
+		}
+		// items 必须存在，且序列化后是 [] 而不是 null。
+		if body.Items == nil {
+			t.Fatal("缺少 items 字段")
+		}
+		if strings.TrimSpace(string(body.Items)) != "[]" {
+			t.Errorf("空列表的 items 应为 []，实际: %s", string(body.Items))
+		}
+		if body.Total == nil || body.Page == nil || body.PageSize == nil {
+			t.Fatalf("缺少 total / page / page_size 字段，原始: %s", rec.Body.String())
+		}
+		// 不传分页参数时必须回落到默认值，而不是回显 0。
+		if *body.Page != 1 || *body.PageSize != defaultOrderPageSize {
+			t.Errorf("不传分页参数应回落到 1 / %d，实际 %d / %d",
+				defaultOrderPageSize, *body.Page, *body.PageSize)
+		}
+	})
+
+	t.Run("管理端订单（items 是数组）", func(t *testing.T) {
+		service := NewService(setupTestRepo(t))
+		router := newTestRouter(NewHandler(service), 1, true)
+
+		rec := doJSON(t, router, http.MethodGet, "/admin/orders", "")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("期望 200，实际 %d", rec.Code)
+		}
+
+		var body envelope
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatalf("响应不是合法 JSON: %v，原始: %s", err, rec.Body.String())
+		}
+		if body.Items == nil {
+			t.Fatal("缺少 items 字段")
+		}
+		// 全表数据量不可控 ⇒ 只锁「是 JSON 数组、不是 null」。
+		if !strings.HasPrefix(strings.TrimSpace(string(body.Items)), "[") {
+			t.Errorf("items 应为 JSON 数组且不为 null，实际: %s", string(body.Items))
+		}
+		if body.Total == nil || body.Page == nil || body.PageSize == nil {
+			t.Fatalf("缺少 total / page / page_size 字段，原始: %s", rec.Body.String())
+		}
+		if *body.Page != 1 || *body.PageSize != defaultOrderPageSize {
+			t.Errorf("不传分页参数应回落到 1 / %d，实际 %d / %d",
+				defaultOrderPageSize, *body.Page, *body.PageSize)
+		}
+	})
 }
 
-// TestHandlerListAllOrdersEmptyReturnsArray 管理端列表同样要兜底成 []。
-func TestHandlerListAllOrdersEmptyReturnsArray(t *testing.T) {
+// TestHandlerListOrdersInvalidPaginationDoesNotError 锁定「非法分页参数不报错」。
+//
+// 两个接口都必须返回 200 + 回落后参数，而不是 400。
+func TestHandlerListOrdersInvalidPaginationDoesNotError(t *testing.T) {
 	service := NewService(setupTestRepo(t))
 	router := newTestRouter(NewHandler(service), 1, true)
 
-	rec := doJSON(t, router, http.MethodGet, "/admin/orders", "")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("期望 200，实际 %d", rec.Code)
-	}
-	if strings.TrimSpace(rec.Body.String()) == "null" {
-		t.Error("管理端空列表不应输出 null")
+	for _, path := range []string{
+		"/orders?page=abc&page_size=xyz",
+		"/orders?page=-5&page_size=-1",
+		"/orders?page=999999&page_size=999999",
+		"/admin/orders?page=abc&page_size=xyz",
+		"/admin/orders?page=-1",
+	} {
+		t.Run(path, func(t *testing.T) {
+			rec := doJSON(t, router, http.MethodGet, path, "")
+			if rec.Code != http.StatusOK {
+				t.Fatalf("非法分页参数应回落到默认值并返回 200，实际 %d: %s",
+					rec.Code, rec.Body.String())
+			}
+		})
 	}
 }
 

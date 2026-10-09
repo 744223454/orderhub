@@ -41,28 +41,38 @@ func (r *Repo) FindByID(ctx context.Context, id uint) (*Order, error) {
 	return &order, nil
 }
 
-// ListByUser 查询指定用户的全部订单，按创建时间倒序。
-// 该用户没有订单时返回空列表且不报错。
-func (r *Repo) ListByUser(ctx context.Context, userID uint) ([]Order, error) {
-	orders, err := gorm.G[Order](r.db).
-		Where("user_id = ?", userID).
-		Order("created_at DESC").
-		Find(ctx)
+// ListByUser 分页查询指定用户的订单（按创建时间倒序），并返回满足条件的总数。
+func (r *Repo) ListByUser(ctx context.Context, userID uint, offset, limit int) ([]Order, int64, error) {
+	countChain := gorm.G[Order](r.db).Where("user_id = ?", userID)
+	total, err := countChain.Count(ctx, "*")
 	if err != nil {
-		return nil, fmt.Errorf("查询用户订单列表失败: %w", err)
+		return nil, 0, fmt.Errorf("统计用户订单总数失败: %w", err)
 	}
-	return orders, nil
+
+	listChain := gorm.G[Order](r.db).Where("user_id = ?", userID)
+	orders, err := listChain.Order("created_at DESC").Offset(offset).Limit(limit).Find(ctx)
+	if err != nil {
+		return nil, 0, fmt.Errorf("查询用户订单列表失败: %w", err)
+	}
+
+	return orders, total, nil
 }
 
-// ListAll 查询全部订单（管理端），按创建时间倒序。
-func (r *Repo) ListAll(ctx context.Context) ([]Order, error) {
-	orders, err := gorm.G[Order](r.db).
-		Order("created_at DESC").
-		Find(ctx)
+// ListAll 分页查询全部订单（管理端），并返回总数。其余约定同 ListByUser。
+func (r *Repo) ListAll(ctx context.Context, offset, limit int) ([]Order, int64, error) {
+	countChain := gorm.G[Order](r.db)
+	total, err := countChain.Count(ctx, "*")
 	if err != nil {
-		return nil, fmt.Errorf("查询订单列表失败: %w", err)
+		return nil, 0, fmt.Errorf("统计全部订单总数失败: %w", err)
 	}
-	return orders, nil
+
+	listChain := gorm.G[Order](r.db)
+	orders, err := listChain.Order("created_at DESC").Offset(offset).Limit(limit).Find(ctx)
+	if err != nil {
+		return nil, 0, fmt.Errorf("查询全部订单列表失败: %w", err)
+	}
+
+	return orders, total, nil
 }
 
 // UpdateStatus 将订单状态从 from 流转为 to。
