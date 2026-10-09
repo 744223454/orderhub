@@ -301,6 +301,83 @@ func TestAccessTokenCoalescesConcurrentCalls(t *testing.T) {
 	}
 }
 
+// TestAccessTokenIgnoresCallerCancellation 锁定练习一修的那个缺陷：
+// 首个请求的ctx 被取消**不得**影响等在同一个 singleflight 上的其他请求。
+//
+// 这条用例会真的抓得住缺陷，原因在于它卡住了服务端让首个 gettoken 挂起：
+//
+//  1. 请求 A 用一个**可取消**的 ctx 进来，它是首个进入 fetchToken 的；
+//  2. 服务端挂起，A 停在 singleflight 里，此时 group 里只有它一份；
+//  3. 取消 A 的 ctx —— 这是「客户端关掉页面」对应的动作；
+//  4. 请求 B 用正常的 ctx 进来，它会挂在同一个 key 上；
+//  5. 放行服务端。
+//
+// 修复前：fetchToken 捕获的是 A 的 ctx，第 3 步取消会直接打断在途的 HTTP 请求，
+// 于是 A 与 B 一起拿到 context canceled，而 B 的 ctx 其实好端端的。
+// 修复后：闭包内用 WithoutCancel 派生，B 能正常拿到 token。
+//
+// ⚠️ **只断言 B 成功，不断言 A 成功** —— 这不是放宽标准，而是分清了两类请求：
+//
+//	gettoken是**共享**的（singleflight 合并后所有调用方共用同一份结果），
+//	  所以它绝不能被任一调用方的生命周期绑架 ⇒ 必须脱离 ctx。B 验证的就是这条。
+//	getuserinfo 是**每个调用方独占**的，A 的客户端既然已经走了，
+//	  就没有任何理由再去取它的身份信息，让它失败反而是正确行为
+//	  （省掉一次注定没人要的HTTP 请求）。
+//
+// 换句话说：修复的边界正好是「共享的那一段」。
+func TestAccessTokenIgnoresCallerCancellation(t *testing.T) {
+	f := newFakeWecom(t)
+	client := newFakeClient(t, f)
+
+	arrived := make(chan struct{})
+	gate := make(chan struct{})
+	var once sync.Once
+	f.tokenResponse = func(int) string {
+		once.Do(func() { close(arrived) })
+		<-gate
+		return ""
+	}
+
+	// A：首个进入者，用可取消的 ctx。
+	ctxA, cancelA := context.WithCancel(context.Background())
+	defer cancelA()
+
+	go func() {
+		// A 的结果不在此断言，理由见函数注释。它失败（甚至成功）都不影响本用例的结论。
+		_, _ = client.ExchangeCode(ctxA, "code-A")
+	}()
+
+	<-arrived // A 已经进到 fetchToken 里了
+
+	// 关键动作：A 的客户端断开。这必须**不影响** B。
+	cancelA()
+
+	// B：在同一个 singleflight key 上排队，用一个完全正常的 ctx。
+	type result struct {
+		identity Identity
+		err      error
+	}
+	resB := make(chan result, 1)
+	go func() {
+		identity, err := client.ExchangeCode(context.Background(), "code-B")
+		resB <- result{identity, err}
+	}()
+
+	close(gate) // 放行服务端，两个 goroutine 一起收尾
+
+	got := <-resB
+	if got.err != nil {
+		t.Fatalf("A 被取消不应拖累 B（B 有自己活着的 ctx），实际: %v", got.err)
+	}
+	if got.identity.UserID != "ZengMaiKuan" {
+		t.Errorf("B 应正常拿到身份，实际: %+v", got.identity)
+	}
+	// 两次换票共用同一份 gettoken 结果，不应因为 A 的取消而多打一次。
+	if n := f.tokensFetched(); n != 1 {
+		t.Errorf("A 与 B 应共用 1 次 gettoken，实际 %d 次", n)
+	}
+}
+
 // TestInvalidTokenRefreshesAndRetries 锁定「凭证失效 → 刷新后重试一次」：
 // 首次身份接口返回 42001（token 超时），客户端应清缓存重取并成功。
 func TestInvalidTokenRefreshesAndRetries(t *testing.T) {
