@@ -144,6 +144,13 @@ export interface UpdateUserRoleRequest {
   role: Role;
 }
 
+/** 管理员建号的请求体，对应 POST /api/admin/users（仅管理员）。 */
+export interface CreateUserRequest {
+  username: string;
+  password: string;
+  role: Role;
+}
+
 /**
  * 企业微信部门，对应后端 wecom.Department（GET /api/admin/org/directory）。
  *

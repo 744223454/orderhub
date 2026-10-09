@@ -12,6 +12,7 @@ import type {
   AdminUserPage,
   ApiErrorBody,
   CreateOrderRequest,
+  CreateUserRequest,
   IdentityProvider,
   LoginRequest,
   LoginResponse,
@@ -205,6 +206,14 @@ export const api = {
     }
     const suffix = query.toString();
     return request<AdminUserPage>(`/api/admin/users${suffix === '' ? '' : `?${suffix}`}`);
+  },
+
+  /** 管理员建号（仅管理员），返回新用户的管理端视图。 */
+  createUser(body: CreateUserRequest): Promise<AdminUser> {
+    return request<AdminUser>('/api/admin/users', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
   },
 
   /** 修改用户角色（仅管理员），返回更新后的用户。 */

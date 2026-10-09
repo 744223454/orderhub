@@ -16,6 +16,7 @@ import {
 } from 'antd';
 
 import { AuthGuard } from '@/components/auth-guard';
+import { UserCreateModal } from '@/components/user-create-modal';
 import { api, ApiError } from '@/lib/api';
 import { useSession } from '@/lib/auth';
 import { identityProviderLabel } from '@/lib/identity';
@@ -67,6 +68,9 @@ function UsersTable() {
   const [actingId, setActingId] = useState<number | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+
+  // 「新建用户」弹窗的开合状态。放在页面而不是弹窗内部：触发按钮在页面上，两处要联动。
+  const [createOpen, setCreateOpen] = useState(false);
 
   const loadUsers = useCallback(async (): Promise<void> => {
     try {
@@ -215,7 +219,14 @@ function UsersTable() {
 
   return (
     <Space orientation="vertical" size={16} style={{ width: '100%' }}>
-      <Card title="用户管理">
+      <Card
+        title="用户管理"
+        extra={
+          <Button type="primary" onClick={() => setCreateOpen(true)}>
+            新建用户
+          </Button>
+        }
+      >
         <Space orientation="vertical" size={12} style={{ width: '100%' }}>
           <Input.Search
             allowClear
@@ -259,6 +270,19 @@ function UsersTable() {
           </Typography.Text>
         </Space>
       </Card>
+
+      <UserCreateModal
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        onCreated={() => {
+          // 新账号必然落在第 1 页（列表按 created_at DESC）：回第 1 页重拉，由后端决定顺序与 total。
+          // ⚠️ 已在第 1 页时 setPage(1) 不触发变更、effect 不会重跑，必须显式补一次。
+          setPage(1);
+          if (page === 1) {
+            void loadUsers();
+          }
+        }}
+      />
     </Space>
   );
 }
