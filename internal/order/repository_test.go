@@ -3,6 +3,7 @@ package order
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -121,9 +122,13 @@ func TestRepoListByUser(t *testing.T) {
 		}
 	}
 
-	got, err := repo.ListByUser(ctx, 1)
+	// 分页查询取全部两条（offset 0、limit 10），total 也应为 2。
+	got, total, err := repo.ListByUser(ctx, 1, 0, 10)
 	if err != nil {
 		t.Fatalf("查询失败: %v", err)
+	}
+	if total != 2 {
+		t.Errorf("总数应为 2，实际 %d", total)
 	}
 	if len(got) != 2 {
 		t.Fatalf("应只返回 user 1 的 2 条订单，实际 %d 条: %+v", len(got), got)
@@ -135,6 +140,152 @@ func TestRepoListByUser(t *testing.T) {
 	}
 	if got[0].ProductName != "较晚的订单" {
 		t.Errorf("应按创建时间倒序，首条应为「较晚的订单」，实际首条: %s", got[0].ProductName)
+	}
+}
+
+// TestRepoListByUserPagination 验证分页的offset 与 limit 真的生效，
+// 且翻页时 total 始终是「满足条件的总数」而不是「当页条数」。
+func TestRepoListByUserPagination(t *testing.T) {
+	repo := setupTestRepo(t)
+	ctx := context.Background()
+
+	if err := repo.db.WithContext(ctx).Exec("DELETE FROM orders WHERE user_id = 8").Error; err != nil {
+		t.Fatalf("清理预置数据失败: %v", err)
+	}
+
+	base := time.Now().Truncate(time.Second)
+	// 5 条订单，越早创建的越靠后（列表按 created_at DESC）。
+	names := []string{"第1条", "第2条", "第3条", "第4条", "第5条"}
+	for i, name := range names {
+		o := Order{
+			UserID:      8,
+			ProductName: name,
+			Amount:      100,
+			Status:      StatusPending,
+			CreatedAt:   base.Add(time.Duration(i-len(names)) * time.Hour),
+		}
+		if err := repo.Create(ctx, &o); err != nil {
+			t.Fatalf("预置数据失败: %v", err)
+		}
+	}
+
+	// 第1 页：offset 0、limit 2 → 应得「第5条」「第4条」，total 恒为 5。
+	page1, total, err := repo.ListByUser(ctx, 8, 0, 2)
+	if err != nil {
+		t.Fatalf("查询第 1 页失败: %v", err)
+	}
+	if total != 5 {
+		t.Errorf("total 应为 5，实际 %d", total)
+	}
+	if len(page1) != 2 {
+		t.Fatalf("第 1 页应有 2 条，实际 %d 条", len(page1))
+	}
+	if page1[0].ProductName != "第5条" || page1[1].ProductName != "第4条" {
+		t.Errorf("第 1 页内容应按创建时间倒序为「第5条」「第4条」，实际: %s、%s",
+			page1[0].ProductName, page1[1].ProductName)
+	}
+
+	// 第 2 页：offset 2、limit 2 → 应得「第3条」「第2条」。
+	page2, total2, err := repo.ListByUser(ctx, 8, 2, 2)
+	if err != nil {
+		t.Fatalf("查询第 2 页失败: %v", err)
+	}
+	if total2 != 5 {
+		t.Errorf("翻页时 total 仍应为 5，实际 %d", total2)
+	}
+	if len(page2) != 2 {
+		t.Fatalf("第 2 页应有 2 条，实际 %d 条", len(page2))
+	}
+	if page2[0].ProductName != "第3条" || page2[1].ProductName != "第2条" {
+		t.Errorf("第 2 页内容应为「第3条」「第2条」，实际: %s、%s",
+			page2[0].ProductName, page2[1].ProductName)
+	}
+
+	// 第 3 页：offset 4、limit 2 → 只剩 1 条，且不能因为 len==0 而报错。
+	page3, _, err := repo.ListByUser(ctx, 8, 4, 2)
+	if err != nil {
+		t.Fatalf("查询第 3 页失败: %v", err)
+	}
+	if len(page3) != 1 || page3[0].ProductName != "第1条" {
+		t.Errorf("第 3 页应只剩「第1条」，实际: %+v", page3)
+	}
+
+	// 越界页：offset 远超总数 → 返回空切片且不报错。
+	page4, total4, err := repo.ListByUser(ctx, 8, 100, 2)
+	if err != nil {
+		t.Fatalf("越界页不应报错，实际: %v", err)
+	}
+	if len(page4) != 0 {
+		t.Errorf("越界页应返回 0 条，实际 %d 条", len(page4))
+	}
+	if total4 != 5 {
+		t.Errorf("越界页的 total 仍应为 5，实际 %d", total4)
+	}
+}
+
+// TestRepoListAllPagination 验证管理端分页的 offset / limit 生效，且能跨用户取到数据。
+//
+// ⚠️ ListAll 查的是**全表**，开发库里天然带着别人提交的订单 ——
+// 「总数恰好 6」「第一页恰好是这 6 条」这类绝对值断言在共享开发库上必然失败
+// （用例跑在事务里，只能回滚自己写的行，撤不掉已提交的真实数据）。
+// 所以这里换成「探针 + 相对断言」：
+//   - 6 条探针的 created_at 取**未来时间**，DESC 排序下必在表头；
+//   - total 用「插入前基线 + 6」做差，不猜库里原有的数据量。
+func TestRepoListAllPagination(t *testing.T) {
+	repo := setupTestRepo(t)
+	ctx := context.Background()
+
+	// 基线：插入探针前，全表已有多少条（含开发库里的既有数据）。
+	_, baseTotal, err := repo.ListAll(ctx, 0, 1)
+	if err != nil {
+		t.Fatalf("读取基线总数失败: %v", err)
+	}
+
+	// 6 条探针分属 3 个用户（顺带覆盖「跨用户」），序号越大创建时间越晚。
+	probeBase := time.Now().Add(time.Hour)
+	for k := 1; k <= 6; k++ {
+		o := Order{
+			UserID:      uint(90 + k%3),
+			ProductName: fmt.Sprintf("分页探针-%d", k),
+			Amount:      100,
+			Status:      StatusPending,
+			CreatedAt:   probeBase.Add(time.Duration(k) * time.Minute),
+		}
+		if err := repo.Create(ctx, &o); err != nil {
+			t.Fatalf("预置探针数据失败: %v", err)
+		}
+	}
+	// DESC 排序下 6 条探针依次为：分页探针-6、-5、-4、-3、-2、-1。
+
+	// 第 1 页（offset 0、limit 3）→ 应为最新的三条探针。
+	page1, total, err := repo.ListAll(ctx, 0, 3)
+	if err != nil {
+		t.Fatalf("查询第 1 页失败: %v", err)
+	}
+	if total != baseTotal+6 {
+		t.Errorf("total 应为基线 %d + 6 = %d，实际 %d", baseTotal, baseTotal+6, total)
+	}
+	assertProbeOrder(t, page1, []string{"分页探针-6", "分页探针-5", "分页探针-4"}, "第 1 页")
+
+	// 第 2 页（offset 3、limit 3）→ 应为次新的三条探针，与第 1 页不重叠。
+	page2, _, err := repo.ListAll(ctx, 3, 3)
+	if err != nil {
+		t.Fatalf("查询第 2 页失败: %v", err)
+	}
+	assertProbeOrder(t, page2, []string{"分页探针-3", "分页探针-2", "分页探针-1"}, "第 2 页")
+}
+
+// assertProbeOrder 断言一页订单的**开头**与给定的探针序列一一对应。
+// 只比较前缀：ListAll 是全表查询，将来若有别的数据混进页尾也不能算失败。
+func assertProbeOrder(t *testing.T, got []Order, want []string, label string) {
+	t.Helper()
+	if len(got) < len(want) {
+		t.Fatalf("%s 应至少返回 %d 条（探针），实际 %d 条", label, len(want), len(got))
+	}
+	for i, name := range want {
+		if got[i].ProductName != name {
+			t.Errorf("%s 第 %d 条应为 %q，实际 %q（顺序或分页错位）", label, i+1, name, got[i].ProductName)
+		}
 	}
 }
 
@@ -150,12 +301,16 @@ func TestRepoListAll(t *testing.T) {
 		}
 	}
 
-	got, err := repo.ListAll(ctx)
+	// 分页查询取全部（limit 给足），并校验总数。
+	got, total, err := repo.ListAll(ctx, 0, 100)
 	if err != nil {
 		t.Fatalf("查询失败: %v", err)
 	}
 	if len(got) < 3 {
 		t.Errorf("应至少返回 3 条订单，实际 %d 条", len(got))
+	}
+	if total < 3 {
+		t.Errorf("总数应至少为 3，实际 %d", total)
 	}
 }
 
@@ -244,13 +399,13 @@ func TestRepoPropagatesDatabaseError(t *testing.T) {
 	})
 
 	t.Run("ListByUser", func(t *testing.T) {
-		if _, err := repo.ListByUser(ctx, 1); err == nil {
+		if _, _, err := repo.ListByUser(ctx, 1, 0, 10); err == nil {
 			t.Error("数据库操作失败时 ListByUser 必须返回错误，不能返回空列表 + nil")
 		}
 	})
 
 	t.Run("ListAll", func(t *testing.T) {
-		if _, err := repo.ListAll(ctx); err == nil {
+		if _, _, err := repo.ListAll(ctx, 0, 10); err == nil {
 			t.Error("数据库操作失败时 ListAll 必须返回错误，不能返回空列表 + nil")
 		}
 	})

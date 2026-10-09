@@ -3,8 +3,10 @@ package order
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestValidateOrderInput 覆盖下单参数校验的边界值。
@@ -85,15 +87,133 @@ func TestServiceListUserOrders(t *testing.T) {
 		t.Fatalf("预置数据失败: %v", err)
 	}
 
-	got, err := service.ListUserOrders(ctx, 1)
+	got, err := service.ListUserOrders(ctx, 1, 1, 20)
 	if err != nil {
 		t.Fatalf("查询失败: %v", err)
 	}
-	for _, o := range got {
+	for _, o := range got.Orders {
 		if o.UserID != 1 {
 			t.Errorf("返回了其他用户的订单: %+v", o)
 		}
 	}
+}
+
+// TestServiceListUserOrdersPaginationFallback 验证分页参数的回落规则：
+// 非法页码与越界条数一律回落成默认值，**不报错**。
+//
+// 这条用例是「参数不校验就等于把错误往后推」的防线：一旦有人改成返回 400，
+// 它会立刻失败。
+func TestServiceListUserOrdersPaginationFallback(t *testing.T) {
+	service := NewService(setupTestRepo(t))
+	ctx := context.Background()
+
+	if err := service.repo.db.WithContext(ctx).Exec("DELETE FROM orders WHERE user_id = 11").Error; err != nil {
+		t.Fatalf("清理预置数据失败: %v", err)
+	}
+	for i := 0; i < 3; i++ {
+		if _, err := service.CreateOrder(ctx, 11, "订单", 100); err != nil {
+			t.Fatalf("预置数据失败: %v", err)
+		}
+	}
+
+	tests := []struct {
+		name             string
+		page, pageSize   int
+		wantPage, wantPS int
+	}{
+		{"全零值应回落默认", 0, 0, 1, defaultOrderPageSize},
+		{"负页码应回落", -5, -1, 1, defaultOrderPageSize},
+		{"条数超上限应被截断", 1, maxOrderPageSize + 50, 1, maxOrderPageSize},
+		{"正常值原样保留", 2, 10, 2, 10},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := service.ListUserOrders(ctx, 11, tt.page, tt.pageSize)
+			if err != nil {
+				t.Fatalf("分页参数非法不应报错，实际: %v", err)
+			}
+			if got.Page != tt.wantPage {
+				t.Errorf("page 生效值应为 %d，实际 %d", tt.wantPage, got.Page)
+			}
+			if got.PageSize != tt.wantPS {
+				t.Errorf("page_size 生效值应为 %d，实际 %d", tt.wantPS, got.PageSize)
+			}
+		})
+	}
+
+	// 第 1 页 2 条、第 2 页 1 条，且两页的 total 都是 3。
+	p1, err := service.ListUserOrders(ctx, 11, 1, 2)
+	if err != nil {
+		t.Fatalf("查询第 1 页失败: %v", err)
+	}
+	p2, err := service.ListUserOrders(ctx, 11, 2, 2)
+	if err != nil {
+		t.Fatalf("查询第 2 页失败: %v", err)
+	}
+	if len(p1.Orders) != 2 || len(p2.Orders) != 1 {
+		t.Errorf("两页应分别为 2 条与 1 条，实际 %d 与 %d", len(p1.Orders), len(p2.Orders))
+	}
+	if p1.Total != 3 || p2.Total != 3 {
+		t.Errorf("两页的 total 都应为 3，实际 %d 与 %d", p1.Total, p2.Total)
+	}
+}
+
+// TestServiceListAllOrdersPagination 验证管理端列表翻页。
+func TestServiceListAllOrdersPagination(t *testing.T) {
+	service := NewService(setupTestRepo(t))
+	ctx := context.Background()
+
+	if err := service.repo.db.WithContext(ctx).Exec("DELETE FROM orders WHERE user_id BETWEEN 30 AND 39").Error; err != nil {
+		t.Fatalf("清理预置数据失败: %v", err)
+	}
+	for u := 0; u < 3; u++ {
+		if _, err := service.CreateOrder(ctx, uint(30+u), "订单", 100); err != nil {
+			t.Fatalf("预置数据失败: %v", err)
+		}
+	}
+
+	got, err := service.ListAllOrders(ctx, 0, 0)
+	if err != nil {
+		t.Fatalf("查询失败: %v", err)
+	}
+	if got.Total < 3 {
+		t.Errorf("总数应至少为 3，实际 %d", got.Total)
+	}
+	if got.Page != 1 || got.PageSize != defaultOrderPageSize {
+		t.Errorf("零值入参应回落到 page=1 / page_size=%d，实际 %d / %d",
+			defaultOrderPageSize, got.Page, got.PageSize)
+	}
+
+	// ── 翻页验收探针：offset 是「跳过条数」，不是页码 ────────────────
+	// 服务层必须把 page 换算成 (page-1)*pageSize 再传给仓储层。
+	// 若把 page 直接当 offset 传：第 1 页会从第 2 条开始（静默丢掉最新一条）、
+	// 第 2 页会与期望错位 —— 这段断言就是给这个换算关系立的靶子。
+	probeBase := time.Now().Add(time.Hour)
+	for k := 1; k <= 6; k++ {
+		o := &Order{
+			UserID:      uint(30 + k%3),
+			ProductName: fmt.Sprintf("翻页探针-%d", k),
+			Amount:      100,
+			Status:      StatusPending,
+			CreatedAt:   probeBase.Add(time.Duration(k) * time.Minute),
+		}
+		if err := service.repo.Create(ctx, o); err != nil {
+			t.Fatalf("预置探针数据失败: %v", err)
+		}
+	}
+	// 探针创建时间在未来，DESC 排序下必在表头，依次为 翻页探针-6 … 翻页探针-1。
+
+	p1, err := service.ListAllOrders(ctx, 1, 3)
+	if err != nil {
+		t.Fatalf("查询第 1 页失败: %v", err)
+	}
+	assertProbeOrder(t, p1.Orders, []string{"翻页探针-6", "翻页探针-5", "翻页探针-4"}, "第 1 页")
+
+	p2, err := service.ListAllOrders(ctx, 2, 3)
+	if err != nil {
+		t.Fatalf("查询第 2 页失败: %v", err)
+	}
+	assertProbeOrder(t, p2.Orders, []string{"翻页探针-3", "翻页探针-2", "翻页探针-1"}, "第 2 页")
 }
 
 // newPendingOrder 预置一张指定用户的待支付订单。

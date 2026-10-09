@@ -7,7 +7,7 @@ import { Alert, Button, Card, Form, Input, InputNumber, Space, Table, Typography
 import { OrderStatusTag } from '@/components/order-status-tag';
 import { api, ApiError } from '@/lib/api';
 import { formatAmount } from '@/lib/format';
-import type { Order, OrderStatus } from '@/lib/types';
+import type { Order, OrderPage, OrderStatus } from '@/lib/types';
 
 /**
  * 新建订单表单的字段。
@@ -30,7 +30,8 @@ interface CreateOrderFormValues {
 export default function MyOrdersPage() {
   // 用 null 表示「首屏还没加载完」，所以 loading 是**算出来的**（orders === null），
   // 不必再额外维护一个 boolean state 去和真实数据保持同步。
-  const [orders, setOrders] = useState<Order[] | null>(null);
+  const [orders, setOrders] = useState<OrderPage | null>(null);
+  const [page, setPage] = useState(1);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   // 行内操作（支付）的状态与错误，与整页加载分开：
@@ -42,24 +43,26 @@ export default function MyOrdersPage() {
   const [form] = Form.useForm<CreateOrderFormValues>();
 
   /**
-   * 拉取自己的订单列表。
+   * 拉取自己的订单列表（当前页）。
    *
    * 特意抽成函数而不是把取数直接写进 effect：**要复用**。
-   * 首屏加载、以及「状态已被别处改过」时重新拉取，都走同一个入口。
+   * 首屏加载、翻页、以及「状态已被别处改过」时重新拉取，都走同一个入口。
+   * 依赖数组里的 page 一变化，函数引用就变，effect 随之重跑 —— 翻页取数由此驱动，
+   * 409 分支的重拉也因而自动落在「当前页」而不是跳回第 1 页。
    */
   const loadOrders = useCallback(async (): Promise<void> => {
     try {
       // 后端已把空列表兜底成 []（handler.go 的 emptyIfNil），
       // 所以这里不会拿到 null，不需要 `?? []` 这类防御。
-      setOrders(await api.listMyOrders());
+      setOrders(await api.listMyOrders({ page }));
       // 成功时顺手清掉上次的错误，否则「重试成功」之后旧的红色横幅还挂在页面上。
       setLoadError(null);
     } catch (e) {
       setLoadError(e instanceof ApiError ? e.message : '加载订单失败');
     }
-  }, []);
+  }, [page]);
 
-  // 首屏加载。loadOrders 被 useCallback 固定了引用，所以这个 effect 只会跑一次。
+  // 首屏加载与翻页都走这里：loadOrders 的引用随 page 变化，effect 依赖它而重跑。
   //
   // ⚠️ 这里会触发一条 react-hooks/set-state-in-effect 的 warn，是**预期**的，不是漏改：
   //    该规则顺着调用链看到「effect 调用的函数里有 setState」就报，**与 setState 排在
@@ -81,16 +84,20 @@ export default function MyOrdersPage() {
     setCreating(true);
     setActionError(null);
     try {
-      const created = await api.createOrder({
+      await api.createOrder({
         product_name: values.product_name,
         // 单位换算：表单收的是「元」，后端要的是「分」。
         // ⚠️ Math.round 不能省：19.99 * 100 在 IEEE 754 下等于 1998.9999999999998，
         //    截断后后端收到 1998，不报错但金额静默少一分。
         amount: Math.round(values.amount * 100),
       });
-      // 插到队首而不是追加：仓库层 ListByUser 按 created_at DESC 返回（最新在前），
-      // 追加会让新单排在列表末尾，条数超过一页时用户根本看不见自己刚下的单。
-      setOrders((prev) => [created, ...(prev ?? [])]);
+      // 新单一定属于第 1 页（列表按 created_at DESC）：重拉第 1 页让后端决定顺序与
+      // total，不做本地插入 —— 本地插入算不准 total，新单混进当前页（如第 3 页）位置也不对。
+      // ⚠️ 已在第 1 页时 setPage(1) 不触发变更、effect 不会重跑，必须显式重拉。
+      setPage(1);
+      if (page === 1) {
+        await loadOrders();
+      }
       // 只在成功时清空：失败时保留用户已填内容，别让人重打一遍。
       form.resetFields();
     } catch (e) {
@@ -111,9 +118,13 @@ export default function MyOrdersPage() {
       const updated = await api.payOrder(id);
       // 局部替换那一条，而不是重拉整张表：后端流转是 CAS，
       // 返回的 Order 就是这次操作的权威值。
-      // ⚠️ 别写成 [...prev, updated]——原行还在、又追加一条同 id 的记录，
-      //    rowKey="id" 撞 key，React 会报 duplicate key，表格行为变得诡异。
-      setOrders((prev) => prev?.map((o) => (o.id === id ? updated : o)) ?? null);
+      // ⚠️ OrderPage 是信封结构：替换 items 后要把 items 之外的字段
+      //    用 ...prev 展开回去，别只返回 items。
+      setOrders((prev) =>
+        prev === null
+          ? null
+          : { ...prev, items: prev.items.map((o) => (o.id === id ? updated : o)) },
+      );
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) {
         // 状态已被别处改过（另一个标签页 / 管理端刚操作过这张单）。
@@ -237,11 +248,17 @@ export default function MyOrdersPage() {
           rowKey="id"
           columns={columns}
           // orders 为 null 时给空数组，Table 才不会因为 dataSource 是 null 而崩。
-          dataSource={orders ?? []}
+          dataSource={orders?.items ?? []}
           // loading 直接由「数据是否到位」算出来，不用额外的 state。
           loading={orders === null}
-          // 后端目前是全量返回、没有分页参数，所以这里只是前端分页；
-          // 数据量大了要改成后端分页（属于后续「业务纵深」的一部分）。
+          // 分页状态以后端回显为准：入参越界时后端会回落，前端跟着它走就不会错位。
+          pagination={{
+            current: orders?.page ?? 1,
+            pageSize: orders?.page_size ?? 20,
+            total: orders?.total ?? 0,
+            showSizeChanger: false,
+          }}
+          onChange={(p) => setPage(p.current ?? 1)}
         />
       </Card>
     </Space>

@@ -17,6 +17,7 @@ import type {
   LoginResponse,
   MeResponse,
   Order,
+  OrderPage,
   OrgDirectory,
   UpdateUserRoleRequest,
   WecomAuthorizeResponse,
@@ -43,29 +44,20 @@ export class ApiError extends Error {
 /**
  * 调用后端接口并解析 JSON 响应，失败时抛出 ApiError。
  *
- * TODO: 由你实现。验收标准（逐条对照，缺一条都会在上线后咬人）：
- *
- * 1. 请求地址用传入的 `path`（同源相对路径），开发期会被 rewrites 代理到 Go 后端。
- * 2. 请求头：默认带 `Content-Type: application/json`；
- *    若 `readToken()` 有值，追加 `Authorization: Bearer <token>`。
- *    注意读取 token 要在这层统一做，页面里不要各自拼 header。
- * 3. 响应状态不是 2xx 时：尝试解析响应体里的 `{ error }` 并
- *    `throw new ApiError(status, error)`；解析不出来就
- *    `throw new ApiError(status, '请求失败')`。绝不把空的 message 抛出去。
- * 4. 成功时返回 `await response.json()`。若某个接口将来返回 204（无响应体），
- *    直接 `json()` 会抛 SyntaxError，届时需要单独处理。
- * 5. 401 的处理放哪里要想清楚：放在这里"自动跳登录"很危险——
- *    登录接口本身返回 401（账号密码错误）也会触发跳转，造成刷新循环。
- *    推荐由调用方（守卫、页面）判断 `err.status === 401` 后再决定。
+ * 三条约定：
+ * 1. 令牌只在这里读（`readToken()`），页面不要各自拼 header —— 认证策略只改这一处。
+ * 2. 失败时抛的 `ApiError` 一定带非空 message：响应体里能解析出 `error` 就用它，
+ *    解析不出（网络中断、非 JSON 响应）则回落到「请求失败」。
+ *    绝不抛空 message —— 页面上会渲染出无内容的红色横幅。
+ * 3. **401 不在这里自动跳登录**，由调用方（守卫、页面）判断 `err.status === 401` 后决定。
+ *    放在这里自动跳会很危险：登录接口本身在账号密码错误时也返回 401，
+ *    会造成刷新循环。
  *
  * 另外留意：Next.js 在服务端组件里会对 fetch 做缓存，而本函数是给浏览器用的。
  * 如果以后要在服务端组件里取数，用 `API_BASE_URL` 拼绝对地址另写一份，
  * 相对路径在 Node 环境里会直接报 "Failed to parse URL"。
  */
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  // TODO: 由你实现（第 2 条要用到上面 import 的 readToken）。
-  // 下面这行只是先把 token 取出来，方便你确认登录状态是否读写正常；
-  // 真正的请求构造与错误映射请照着上方注释补全。
   const headers = new Headers(init?.headers);
   headers.set('Content-Type', 'application/json');
   const token = readToken();
@@ -115,9 +107,18 @@ export const api = {
     return request<Order>('/api/orders', { method: 'POST', body: JSON.stringify(body) });
   },
 
-  /** 查询自己的订单列表。 */
-  listMyOrders(): Promise<Order[]> {
-    return request<Order[]>('/api/orders');
+  /** 查询自己的订单列表（分页）。 */
+  listMyOrders(params: { page?: number; pageSize?: number } = {}): Promise<OrderPage> {
+    const query = new URLSearchParams();
+    if (params.page !== undefined) {
+      query.set('page', String(params.page));
+    }
+    if (params.pageSize !== undefined) {
+      query.set('page_size', String(params.pageSize));
+    }
+    const suffix = query.toString();
+
+    return request<OrderPage>(`/api/orders${suffix === '' ? '' : `?${suffix}`}`);
   },
 
   /** 支付自己的订单（pending → paid）。 */
@@ -125,9 +126,18 @@ export const api = {
     return request<Order>(`/api/orders/${id}/pay`, { method: 'POST' });
   },
 
-  /** 查询全部订单（仅运营 / 管理员）。 */
-  listAllOrders(): Promise<Order[]> {
-    return request<Order[]>('/api/admin/orders');
+  /** 查询全部订单（仅运营 / 管理员，分页）。 */
+  listAllOrders(params: { page?: number; pageSize?: number } = {}): Promise<OrderPage> {
+    const query = new URLSearchParams();
+    if (params.page !== undefined) {
+      query.set('page', String(params.page));
+    }
+    if (params.pageSize !== undefined) {
+      query.set('page_size', String(params.pageSize));
+    }
+    const suffix = query.toString();
+
+    return request<OrderPage>(`/api/admin/orders${suffix === '' ? '' : `?${suffix}`}`);
   },
 
   /** 发货（paid → shipped，仅运营 / 管理员）。 */

@@ -22,15 +22,26 @@
                 "tags": [
                     "订单管理"
                 ],
-                "summary": "查询全部订单（仅运营/管理员）",
+                "summary": "查询全部订单（仅运营/管理员，分页）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "页码，从 1 开始（默认 1）",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "每页条数（默认 20，上限 100）",
+                        "name": "page_size",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/internal_order.Order"
-                            }
+                            "$ref": "#/definitions/internal_order.listOrdersResponse"
                         }
                     },
                     "403": {
@@ -768,15 +779,26 @@
                 "tags": [
                     "订单"
                 ],
-                "summary": "查询自己的订单列表",
+                "summary": "查询自己的订单列表（分页）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "页码，从 1 开始（默认 1）",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "每页条数（默认 20，上限 100）",
+                        "name": "page_size",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/internal_order.Order"
-                            }
+                            "$ref": "#/definitions/internal_order.listOrdersResponse"
                         }
                     },
                     "401": {
@@ -1077,6 +1099,30 @@
                 "product_name": {
                     "description": "ProductName 商品名称。",
                     "type": "string"
+                }
+            }
+        },
+        "internal_order.listOrdersResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "description": "Items 当前页的订单。",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_order.Order"
+                    }
+                },
+                "page": {
+                    "description": "Page 生效后的页码，从 1 开始。",
+                    "type": "integer"
+                },
+                "page_size": {
+                    "description": "PageSize 生效后的每页条数。",
+                    "type": "integer"
+                },
+                "total": {
+                    "description": "Total 满足条件的订单总数（不受分页限制）。",
+                    "type": "integer"
                 }
             }
         },

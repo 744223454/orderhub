@@ -51,9 +51,11 @@ func parseOrderID(c *gin.Context) (uint, bool) {
 	return uint(id), true
 }
 
-// emptyIfNil 把 nil 切片换成空切片。
-// 仓库层查不到数据时返回的是 nil，直接序列化会输出 null，
-// 前端对 null 调用 .map() 会抛错，因此在这一层统一兜底成 []。
+// emptyIfNil 把 nil 切片换成空切片，序列化后是 [] 而不是 null。
+//
+// gorm 泛型 Find 的空结果目前已是非 nil 空切片（v1.31.2 实测），
+// 这里仍显式兜底：把「items 恒为 []」的响应契约固定在序列化边界，
+// 不依赖 ORM 的实现细节——前端拿到 null 调 .map() 会直接抛错。
 func emptyIfNil(orders []Order) []Order {
 	if orders == nil {
 		return []Order{}
@@ -101,11 +103,28 @@ func (h *Handler) CreateOrder(c *gin.Context) {
 	c.JSON(http.StatusOK, o)
 }
 
+// listOrdersResponse 是订单列表的返回载荷。
+//
+// 形状与 user 包的 listUsersResponse 保持一致（items/total/page/page_size）：
+// 前端要靠 total 算总页数，两个列表页也复用同一套分页组件。
+type listOrdersResponse struct {
+	// Items 当前页的订单。
+	Items []Order `json:"items"`
+	// Total 满足条件的订单总数（不受分页限制）。
+	Total int64 `json:"total"`
+	// Page 生效后的页码，从 1 开始。
+	Page int `json:"page"`
+	// PageSize 生效后的每页条数。
+	PageSize int `json:"page_size"`
+}
+
 // ListMyOrders 我的订单列表
-// @Summary 查询自己的订单列表
+// @Summary 查询自己的订单列表（分页）
 // @Tags 订单
 // @Produce json
-// @Success 200 {array} Order
+// @Param page query int false "页码，从 1 开始（默认 1）"
+// @Param page_size query int false "每页条数（默认 20，上限 100）"
+// @Success 200 {object} listOrdersResponse
 // @Failure 401 {object} map[string]string
 // @Security BearerAuth
 // @Router /orders [get]
@@ -116,12 +135,22 @@ func (h *Handler) ListMyOrders(c *gin.Context) {
 		return
 	}
 
-	orders, err := h.service.ListUserOrders(c.Request.Context(), userID)
+	// 解析失败一律交给服务层回落到默认值，不在这里报错。
+	page, _ := strconv.Atoi(c.Query("page"))
+	pageSize, _ := strconv.Atoi(c.Query("page_size"))
+
+	result, err := h.service.ListUserOrders(c.Request.Context(), userID, page, pageSize)
 	if err != nil {
 		respondOrderError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, emptyIfNil(orders))
+
+	c.JSON(http.StatusOK, listOrdersResponse{
+		Items:    emptyIfNil(result.Orders),
+		Total:    result.Total,
+		Page:     result.Page,
+		PageSize: result.PageSize,
+	})
 }
 
 // PayOrder 支付订单
@@ -157,20 +186,32 @@ func (h *Handler) PayOrder(c *gin.Context) {
 }
 
 // ListAllOrders 全部订单列表（管理端）
-// @Summary 查询全部订单（仅运营/管理员）
+// @Summary 查询全部订单（仅运营/管理员，分页）
 // @Tags 订单管理
 // @Produce json
-// @Success 200 {array} Order
+// @Param page query int false "页码，从 1 开始（默认 1）"
+// @Param page_size query int false "每页条数（默认 20，上限 100）"
+// @Success 200 {object} listOrdersResponse
 // @Failure 403 {object} map[string]string
 // @Security BearerAuth
 // @Router /admin/orders [get]
 func (h *Handler) ListAllOrders(c *gin.Context) {
-	orders, err := h.service.ListAllOrders(c.Request.Context())
+	// 解析失败一律交给服务层回落到默认值，不在这里报错。
+	page, _ := strconv.Atoi(c.Query("page"))
+	pageSize, _ := strconv.Atoi(c.Query("page_size"))
+
+	result, err := h.service.ListAllOrders(c.Request.Context(), page, pageSize)
 	if err != nil {
 		respondOrderError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, emptyIfNil(orders))
+
+	c.JSON(http.StatusOK, listOrdersResponse{
+		Items:    emptyIfNil(result.Orders),
+		Total:    result.Total,
+		Page:     result.Page,
+		PageSize: result.PageSize,
+	})
 }
 
 // ShipOrder 发货

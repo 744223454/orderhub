@@ -63,6 +63,17 @@ const (
 	// tokenGroupKey 是 singleflight 的合并键：每个 Client 只维护一个应用的 token，
 	// 用固定键即可。
 	tokenGroupKey = "access_token"
+
+	// tokenTimeout 是**单次取 access_token** 的上限。
+	//
+	// 不能依赖调用方传来的 ctx：那是 HTTP 请求的 ctx，客户端一断开就取消。
+	// 而这次取凭证是 shared（singleflight 合并后的那一份）——某个调用方关掉页面就
+	// 让所有等着的请求一起失败，还会留下一个「context canceled」的假故障。
+	// 所以抓取挂在脱离请求生命周期的 ctx 上，并自带超时兜底。
+	//
+	// 取 5s：gettoken 只是一个很小的 HTTP GET，5s 足够；它与 directoryTimeout
+	// 用 20s 的原因不同 —— 目录抓取要逐部门并发拉全量成员，耗时量级完全不同。
+	tokenTimeout = 5 * time.Second
 )
 
 // Intent 表示本次扫码授权的用途。
@@ -381,7 +392,18 @@ func (c *Client) accessToken(ctx context.Context) (string, error) {
 		if token, ok := c.cachedToken(); ok {
 			return token, nil
 		}
-		return c.fetchToken(ctx)
+
+		// 脱离调用方 ctx 并自带超时：这次取凭证可能同时服务多个调用方，
+		// 不能被其中任何一个的断连拖下水（详见 tokenTimeout 的说明）。
+		fetchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), tokenTimeout)
+		defer cancel()
+
+		token, err := c.fetchToken(fetchCtx)
+		if err != nil {
+			return nil, err
+		}
+
+		return token, nil
 	})
 	if err != nil {
 		return "", err
