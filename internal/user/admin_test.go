@@ -232,7 +232,7 @@ func TestServiceUpdateRoleRejectsLastAdmin(t *testing.T) {
 	t.Cleanup(func() { _ = tx.Rollback() })
 
 	// 服务层绑定到这个事务上，它内部再开的事务会退化成 savepoint，仍处在同一事务内。
-	service := NewService(NewRepository(tx))
+	service := NewService(NewRepository(tx), time.Hour)
 
 	only := &User{Name: "lastadmin" + uniqueSuffix(), PasswordHash: "x", Role: RoleAdmin}
 	if err := service.repo.Create(ctx, only); err != nil {

@@ -35,4 +35,12 @@ var (
 	// ErrLastAdmin 不允许把系统中最后一个管理员降级。
 	// 降级之后没有人能再进入用户管理把它改回来，系统只能靠手工改库恢复。
 	ErrLastAdmin = errors.New("不能降级最后一个管理员")
+	// ErrRefreshTokenNotFound 刷新令牌不存在（查无此串）。
+	// 仅供模块内部区分「查无此串」与数据库故障，不直接对外暴露——
+	// 服务层需要据此与「串存在但已被撤销」分开处理（后者是重放，要触发连坐撤销）。
+	ErrRefreshTokenNotFound = errors.New("刷新令牌不存在")
+	// ErrInvalidRefreshToken 刷新令牌无效（不存在 / 已过期 / 已被撤销）。
+	// 三种情形对外合并为同一文案：调用方（前端）对它们的处理动作相同（清会话、回登录页），
+	// 无需区分；分开只会给攻击者提供探测信息。接口层据此返回 401。
+	ErrInvalidRefreshToken = errors.New("刷新令牌无效或已过期")
 )

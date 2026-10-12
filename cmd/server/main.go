@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -20,8 +19,13 @@ import (
 	"gorm.io/gorm"
 )
 
-// defaultJWTExpire 是令牌默认有效期，可由环境变量 JWT_EXPIRE 覆盖。
-const defaultJWTExpire = 24 * time.Hour
+// defaultAccessExpire 是访问令牌的默认有效期，可由环境变量 ACCESS_EXPIRE 覆盖。
+// 短寿命（分钟级）是刻意选择：配合刷新令牌机制，把令牌泄露的可用窗口压到最小。
+const defaultAccessExpire = 15 * time.Minute
+
+// defaultRefreshExpire 是刷新令牌的默认有效期，可由环境变量 REFRESH_EXPIRE 覆盖。
+// 长寿命（周级）换取「用户长期不用重新登录」，同时它是可撤销的有状态令牌。
+const defaultRefreshExpire = 168 * time.Hour
 
 // @title 多角色订单系统 API
 // @version 1.0
@@ -41,7 +45,11 @@ func main() {
 	if jwtSecret == "" {
 		panic("未设置 JWT_SECRET 环境变量")
 	}
-	jwtExpire, err := loadJWTExpire()
+	accessExpire, err := loadDuration("ACCESS_EXPIRE", defaultAccessExpire)
+	if err != nil {
+		panic(err.Error())
+	}
+	refreshExpire, err := loadDuration("REFRESH_EXPIRE", defaultRefreshExpire)
 	if err != nil {
 		panic(err.Error())
 	}
@@ -54,15 +62,16 @@ func main() {
 	if err != nil {
 		panic("连接数据库失败: " + err.Error())
 	}
-	if err := db.AutoMigrate(&user.User{}, &user.UserIdentity{}, &order.Order{}); err != nil {
+	if err := db.AutoMigrate(&user.User{}, &user.UserIdentity{}, &user.RefreshToken{}, &order.Order{}); err != nil {
 		panic("数据库自动迁移失败: " + err.Error())
 	}
 
 	repo := user.NewRepository(db)
-	service := user.NewService(repo)
+	service := user.NewService(repo, refreshExpire)
 	// 通过注入的方式交出签发能力，避免 user 模块反向依赖 auth 模块。
+	// 注入的只负责访问令牌（短命 JWT）；刷新令牌由 user 模块自己管理（有状态、需查表撤销）。
 	handler := user.NewHandler(service, func(u *user.User) (string, error) {
-		return auth.GenerateToken(u, jwtSecret, jwtExpire)
+		return auth.GenerateToken(u, jwtSecret, accessExpire)
 	})
 
 	orderRepo := order.NewRepository(db)
@@ -76,7 +85,7 @@ func main() {
 		})
 	})
 
-	// 公开路由：注册 / 登录
+	// 公开路由：注册 / 登录 / 刷新 / 登出
 	api := router.Group("/api")
 	user.AuthRoutes(api, handler)
 
@@ -102,7 +111,7 @@ func main() {
 	if wecomClient == nil {
 		log.Println("未配置企业微信登录（WECOM_* 全部为空），扫码登录接口未注册；通讯录接口将返回 503")
 	}
-	wecomHandler := newWecomHandler(wecomClient, service, jwtSecret, jwtExpire)
+	wecomHandler := newWecomHandler(wecomClient, service, jwtSecret, accessExpire)
 	if wecomClient != nil {
 		wecom.PublicRoutes(api, wecomHandler)
 		wecom.AuthedRoutes(authed, wecomHandler)
@@ -118,20 +127,21 @@ func main() {
 	}
 }
 
-// loadJWTExpire 读取 JWT_EXPIRE 环境变量并解析为时长，未设置时返回默认值。
-func loadJWTExpire() (time.Duration, error) {
-	raw := os.Getenv("JWT_EXPIRE")
+// loadDuration 读取指定名称的环境变量并解析为时长，未设置时返回默认值。
+// 解析失败或非正数时返回错误——让错误配置在启动时就暴露，而不是运行期才发作。
+func loadDuration(key string, def time.Duration) (time.Duration, error) {
+	raw := os.Getenv(key)
 	if raw == "" {
-		return defaultJWTExpire, nil
+		return def, nil
 	}
-	expire, err := time.ParseDuration(raw)
+	duration, err := time.ParseDuration(raw)
 	if err != nil {
-		return 0, fmt.Errorf("JWT_EXPIRE 格式非法（应形如 24h / 30m）: %w", err)
+		return 0, fmt.Errorf("%s 格式非法（应形如 15m / 168h）: %w", key, err)
 	}
-	if expire <= 0 {
-		return 0, errors.New("JWT_EXPIRE 必须为正数时长")
+	if duration <= 0 {
+		return 0, fmt.Errorf("%s 必须为正数时长", key)
 	}
-	return expire, nil
+	return duration, nil
 }
 
 // loadWecomClient 依据环境变量创建企业微信客户端。
@@ -175,19 +185,25 @@ func newWecomHandler(
 	client *wecom.Client,
 	service *user.Service,
 	jwtSecret string,
-	jwtExpire time.Duration,
+	accessExpire time.Duration,
 ) *wecom.Handler {
-	// 把企业微信 userid 换成「本地账号 + 访问令牌」：首次登录自动建号。
-	login := func(ctx context.Context, externalID string) (*user.User, string, error) {
+	// 把企业微信 userid 换成「本地账号 + 令牌对」：首次登录自动建号。
+	// 与密码登录一致：登录必须成套签发访问令牌与刷新令牌（刷新令牌由 user 模块管理），
+	// 否则扫码登录的用户拿不到续期能力。
+	login := func(ctx context.Context, externalID string) (*user.User, string, string, error) {
 		u, err := service.LoginByExternal(ctx, user.ProviderWecom, externalID)
 		if err != nil {
-			return nil, "", err
+			return nil, "", "", err
 		}
-		token, err := auth.GenerateToken(u, jwtSecret, jwtExpire)
+		token, err := auth.GenerateToken(u, jwtSecret, accessExpire)
 		if err != nil {
-			return nil, "", err
+			return nil, "", "", err
 		}
-		return u, token, nil
+		refresh, err := service.IssueRefresh(ctx, u.ID)
+		if err != nil {
+			return nil, "", "", err
+		}
+		return u, token, refresh, nil
 	}
 
 	// 把企业微信身份绑定到当前登录账号。

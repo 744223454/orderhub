@@ -112,9 +112,9 @@ func TestLoginHappyPath(t *testing.T) {
 	f.userResponse = func(int, string) string { return `{"errcode":0,"errmsg":"ok","userid":"ZengMaiKuan"}` }
 
 	var gotExternalID string
-	login := func(_ context.Context, externalID string) (*user.User, string, error) {
+	login := func(_ context.Context, externalID string) (*user.User, string, string, error) {
 		gotExternalID = externalID
-		return &user.User{ID: 7, Name: "wecom_ZengMaiKuan", Role: user.RoleUser}, "jwt-token", nil
+		return &user.User{ID: 7, Name: "wecom_ZengMaiKuan", Role: user.RoleUser}, "jwt-token", "jwt-refresh-token", nil
 	}
 
 	rec := postCallback(t, newTestRouter(NewHandler(newFakeClient(t, f), login, nil), nil),
@@ -134,6 +134,11 @@ func TestLoginHappyPath(t *testing.T) {
 	if body.Token != "jwt-token" {
 		t.Errorf("令牌期望 jwt-token，实际 %q", body.Token)
 	}
+	// 刷新令牌必须原样转发自登录闭包：若漏组装或组装错字段，
+	// 扫码登录的用户将拿不到续期能力，且这种缺陷会静默失败。
+	if body.RefreshToken != "jwt-refresh-token" {
+		t.Errorf("刷新令牌期望 jwt-refresh-token，实际 %q", body.RefreshToken)
+	}
 	if body.User == nil || body.User.ID != 7 {
 		t.Errorf("应答里应带上登录用户，实际 %+v", body.User)
 	}
@@ -150,9 +155,9 @@ func TestLoginRejectsMismatchedState(t *testing.T) {
 	f := newFakeWecom(t)
 
 	loginCalled := false
-	login := func(_ context.Context, _ string) (*user.User, string, error) {
+	login := func(_ context.Context, _ string) (*user.User, string, string, error) {
 		loginCalled = true
-		return &user.User{ID: 1, Role: user.RoleUser}, "jwt", nil
+		return &user.User{ID: 1, Role: user.RoleUser}, "jwt", "jwt-refresh", nil
 	}
 
 	rec := postCallback(t, newTestRouter(NewHandler(newFakeClient(t, f), login, nil), nil),
@@ -206,9 +211,9 @@ func TestLoginRejectsNonCorpMember(t *testing.T) {
 	}
 
 	loginCalled := false
-	login := func(_ context.Context, _ string) (*user.User, string, error) {
+	login := func(_ context.Context, _ string) (*user.User, string, string, error) {
 		loginCalled = true
-		return &user.User{ID: 1, Role: user.RoleUser}, "jwt", nil
+		return &user.User{ID: 1, Role: user.RoleUser}, "jwt", "jwt-refresh", nil
 	}
 
 	rec := postCallback(t, newTestRouter(NewHandler(newFakeClient(t, f), login, nil), nil),

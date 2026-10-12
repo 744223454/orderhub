@@ -2,10 +2,16 @@ package user
 
 import "github.com/gin-gonic/gin"
 
-// AuthRoutes 注册公开的认证接口（注册 / 登录）到给定路由分组。
+// AuthRoutes 注册公开的认证接口（注册 / 登录 / 刷新 / 登出）到给定路由分组。
+//
+// refresh 与 logout 刻意挂在公开层（不经过 auth.Auth）：它们的凭据是刷新令牌本身，
+// 而不是访问令牌——访问令牌恰好过期时也必须能刷新、能登出，
+// 否则「过期即锁死」会在客户端造出一堆只能清本地缓存的死角。
 func AuthRoutes(rg *gin.RouterGroup, h *Handler) {
 	rg.POST("/register", h.Register)
 	rg.POST("/login", h.Login)
+	rg.POST("/refresh", h.Refresh)
+	rg.POST("/logout", h.Logout)
 }
 
 // MeRoutes 注册当前登录用户的自助接口（查询本人信息 / 修改密码）到给定路由分组

@@ -179,7 +179,7 @@ definitions:
         description: NewPassword 新密码，长度规则与注册一致（8~16 个字符）。
         type: string
       old_password:
-        description: OldPassword 原密码。仅当账号已设置过密码时必填；无密码账号（如企微自动建号）直接设置时省略。
+        description: OldPassword 原密码。仅当账号已设置过密码时必填；无密码账号（如企微自动建号）可不提供。
         type: string
     required:
     - new_password
@@ -226,13 +226,43 @@ definitions:
     type: object
   internal_user.loginResponse:
     properties:
+      refresh_token:
+        description: |-
+          RefreshToken 刷新令牌（长寿命的不透明串），访问令牌过期后凭它静默换取新的一对令牌。
+          客户端应把它当作与密码同级的敏感信息保存。
+        type: string
       token:
-        description: Token Bearer 访问令牌，后续请求需放入 Authorization 头。
+        description: Token Bearer 访问令牌（短寿命），后续请求需放入 Authorization 头。
         type: string
       user:
         allOf:
         - $ref: '#/definitions/internal_user.User'
         description: User 登录成功的用户信息（不含密码哈希）。
+    type: object
+  internal_user.logoutRequest:
+    properties:
+      refresh_token:
+        description: RefreshToken 要撤销的刷新令牌原始串。
+        type: string
+    required:
+    - refresh_token
+    type: object
+  internal_user.refreshRequest:
+    properties:
+      refresh_token:
+        description: RefreshToken 客户端保存的刷新令牌原始串。
+        type: string
+    required:
+    - refresh_token
+    type: object
+  internal_user.refreshResponse:
+    properties:
+      refresh_token:
+        description: RefreshToken 轮转后的新刷新令牌；旧的已被作废，客户端必须替换保存。
+        type: string
+      token:
+        description: Token 新的 Bearer 访问令牌。
+        type: string
     type: object
   internal_user.registerRequest:
     properties:
@@ -360,8 +390,13 @@ definitions:
     type: object
   internal_wecom.loginResponse:
     properties:
+      refresh_token:
+        description: |-
+          RefreshToken 刷新令牌（长寿命的不透明串），访问令牌过期后凭它静默换取新的一对令牌。
+          客户端应把它当作与密码同级的敏感信息保存。
+        type: string
       token:
-        description: Token Bearer 访问令牌，后续请求需放入 Authorization 头。
+        description: Token Bearer 访问令牌（短寿命），后续请求需放入 Authorization 头。
         type: string
       user:
         allOf:
@@ -869,6 +904,35 @@ paths:
       summary: 用户登录
       tags:
       - 用户
+  /logout:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: 要撤销的刷新令牌
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_user.logoutRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: 登出（撤销刷新令牌）
+      tags:
+      - 用户
   /me:
     get:
       produces:
@@ -1034,6 +1098,39 @@ paths:
       summary: 支付自己的订单（pending → paid）
       tags:
       - 订单
+  /refresh:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: 刷新令牌
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_user.refreshRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_user.refreshResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: 刷新登录凭证
+      tags:
+      - 用户
   /register:
     post:
       consumes:

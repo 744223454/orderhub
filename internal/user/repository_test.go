@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/joho/godotenv"
 	"gorm.io/driver/postgres"
@@ -34,7 +35,7 @@ func setupTestRepo(t *testing.T) *Repo {
 		t.Fatalf("连接数据库失败: %v", err)
 	}
 	// 表结构迁移是幂等的，且与服务启动时的行为一致。
-	if err := db.AutoMigrate(&User{}, &UserIdentity{}); err != nil {
+	if err := db.AutoMigrate(&User{}, &UserIdentity{}, &RefreshToken{}); err != nil {
 		t.Fatalf("迁移用户相关表失败: %v", err)
 	}
 
@@ -48,9 +49,10 @@ func setupTestRepo(t *testing.T) *Repo {
 }
 
 // setupTestService 在仓库的基础上构造服务层，供跨层用例使用。
+// 刷新令牌统一按 1 小时有效期构造；过期行为的专项覆盖在 refresh_test.go 里用「预置过期记录」实现。
 func setupTestService(t *testing.T) *Service {
 	t.Helper()
-	return NewService(setupTestRepo(t))
+	return NewService(setupTestRepo(t), time.Hour)
 }
 
 // canceledCtx 返回一个已取消的 context，用于让数据库操作必然失败，

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -248,6 +249,60 @@ func (r *Repo) DeleteIdentity(ctx context.Context, userID uint, provider Identit
 	}
 	if rows == 0 {
 		return ErrIdentityNotFound
+	}
+	return nil
+}
+
+// CreateRefreshToken 写入一条刷新令牌记录（TokenHash 由调用方算好，原始串不落库）。
+// 唯一冲突不单独翻译：哈希来自 256 位随机串，碰撞可忽略；真发生则按技术错误上抛。
+func (r *Repo) CreateRefreshToken(ctx context.Context, token *RefreshToken) error {
+	if err := gorm.G[RefreshToken](r.db).Create(ctx, token); err != nil {
+		return fmt.Errorf("创建刷新令牌失败: %w", err)
+	}
+	return nil
+}
+
+// FindRefreshTokenByHash 按令牌哈希查询刷新令牌记录。
+// 查无此串时返回 ErrRefreshTokenNotFound——调用方需要把它和「查到了但已被撤销」分开：
+// 后者说明这枚串在作废之后又被使用（重放），是泄露信号，处理方式完全不同。
+func (r *Repo) FindRefreshTokenByHash(ctx context.Context, hash string) (*RefreshToken, error) {
+	refreshToken, err := gorm.G[RefreshToken](r.db).
+		Where("token_hash = ?", hash).
+		First(ctx)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrRefreshTokenNotFound
+		}
+		return nil, fmt.Errorf("按哈希查询刷新令牌失败: %w", err)
+	}
+	return &refreshToken, nil
+}
+
+// RevokeRefreshToken 撤销单条刷新令牌（置 revoked_at），返回「是否由本次调用完成撤销」。
+//
+// 返回值语义是并发正确性的关键：撤销必须写成**条件更新**
+// （仅当 revoked_at 仍为空时才生效，即 CAS），否则两个并发请求用同一枚旧串刷新时，
+// 两边都会「撤销成功」，轮转的防重放能力就被架空了。
+// 返回 false（0 行受影响）说明该串此前已被撤销——在轮转场景下这意味着
+// 「另一个请求已经先走了同样的路」，调用方应按重放处理。
+func (r *Repo) RevokeRefreshToken(ctx context.Context, id uint) (bool, error) {
+	rows, err := gorm.G[RefreshToken](r.db).
+		Where("id = ? AND revoked_at IS NULL", id).
+		Update(ctx, "revoked_at", time.Now())
+	if err != nil {
+		return false, fmt.Errorf("撤销刷新令牌失败: %w", err)
+	}
+	return rows == 1, nil
+}
+
+// RevokeAllRefreshTokensByUser 撤销指定用户全部仍有效的刷新令牌（改密 / 重放检测触发）。
+// 无有效令牌时是正常的 0 行更新，不算错误。
+func (r *Repo) RevokeAllRefreshTokensByUser(ctx context.Context, userID uint) error {
+	_, err := gorm.G[RefreshToken](r.db).
+		Where("user_id = ? AND revoked_at IS NULL", userID).
+		Update(ctx, "revoked_at", time.Now())
+	if err != nil {
+		return fmt.Errorf("撤销用户全部刷新令牌失败: %w", err)
 	}
 	return nil
 }

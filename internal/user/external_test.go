@@ -49,7 +49,7 @@ func TestExternalUsernameShape(t *testing.T) {
 // TestServiceLoginByExternalValidatesInput 覆盖入参校验。
 // 校验发生在触库之前，因此这里用空仓库即可，无需数据库也能跑。
 func TestServiceLoginByExternalValidatesInput(t *testing.T) {
-	service := NewService(nil)
+	service := NewService(nil, time.Hour)
 	ctx := context.Background()
 
 	if _, err := service.LoginByExternal(ctx, "github", "u1"); !errors.Is(err, ErrInvalidProvider) {
@@ -264,7 +264,7 @@ func cleanupExternalAccount(t *testing.T, db *gorm.DB, externalID string) {
 // 就会建出多个账号，且该身份只绑到其中一个 —— 用户下次登录可能落到另一个空账号上。
 func TestServiceLoginByExternalIsConcurrentSafe(t *testing.T) {
 	db := setupIsolatedDB(t)
-	service := NewService(NewRepository(db))
+	service := NewService(NewRepository(db), time.Hour)
 
 	// 唯一标识：既不与库中既有数据冲突，也保证本用例重跑时互不干扰。
 	externalID := fmt.Sprintf("race-%d", time.Now().UnixNano())
