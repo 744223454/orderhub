@@ -187,6 +187,22 @@ func (r *Repo) UpdateRole(ctx context.Context, id uint, role Role) error {
 	return nil
 }
 
+// UpdatePassword 更新指定用户的密码哈希。
+// 用户不存在时返回 ErrUserNotFound。
+func (r *Repo) UpdatePassword(ctx context.Context, id uint, passwordHash string) error {
+	rows, err := gorm.G[User](r.db).
+		Where("id = ?", id).
+		Update(ctx, "password_hash", passwordHash)
+	if err != nil {
+		return fmt.Errorf("更新密码失败: %w", err)
+	}
+
+	if rows == 0 {
+		return ErrUserNotFound
+	}
+	return nil
+}
+
 // LockAdmins 锁定全部管理员账号并返回数量。
 //
 // 为什么必须加锁，而不是「先 COUNT 再 UPDATE」：两条独立语句之间存在竞态窗口 ——

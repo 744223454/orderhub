@@ -2,6 +2,7 @@
 
 import { Space, Typography } from 'antd';
 
+import { ChangePasswordCard } from '@/components/change-password-card';
 import { WecomBindCard } from '@/components/wecom-bind-card';
 
 /**
@@ -21,6 +22,7 @@ export default function SettingsPage() {
       </Typography.Title>
 
       <Space orientation="vertical" size={16} style={{ width: '100%' }}>
+        <ChangePasswordCard />
         <WecomBindCard />
       </Space>
     </div>

@@ -21,6 +21,8 @@ var (
 	ErrInvalidUsername = errors.New("用户名长度不合法")
 	// ErrInvalidPassword 密码长度不合法，错误文案中会附带具体要求。
 	ErrInvalidPassword = errors.New("密码长度不合法")
+	// ErrPasswordMismatch 修改密码时原密码校验失败（错误或未提供）。
+	ErrPasswordMismatch = errors.New("原密码不正确")
 	// ErrIdentityNotFound 外部身份尚未绑定任何账号。
 	// 仅供模块内部区分「未绑定」与数据库故障，不直接对外暴露。
 	ErrIdentityNotFound = errors.New("外部身份未绑定账号")

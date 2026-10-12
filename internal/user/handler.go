@@ -41,6 +41,7 @@ func respondUserError(c *gin.Context, err error) {
 	case errors.Is(err, ErrInvalidRole),
 		errors.Is(err, ErrInvalidUsername),
 		errors.Is(err, ErrInvalidPassword),
+		errors.Is(err, ErrPasswordMismatch),
 		errors.Is(err, ErrInvalidProvider),
 		errors.Is(err, ErrInvalidExternalID):
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -155,11 +156,57 @@ func (h *Handler) Me(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "未认证"})
 		return
 	}
+	u, err := h.service.FindUserByID(c.Request.Context(), userID)
+	if err != nil {
+		respondUserError(c, err)
+		return
+	}
 	role, _ := CurrentRole(c)
+	// has_password 供前端账号设置页决定渲染「设置密码」还是「修改密码」形态。
 	c.JSON(http.StatusOK, gin.H{
-		"user_id": userID,
-		"role":    role,
+		"user_id":      userID,
+		"role":         role,
+		"has_password": hasUsablePassword(u),
 	})
+}
+
+type changePasswordRequest struct {
+	// OldPassword 原密码。仅当账号已设置过密码时必填；无密码账号（如企微自动建号）可不提供。
+	OldPassword string `json:"old_password"`
+	// NewPassword 新密码，长度规则与注册一致（8~16 个字符）。
+	NewPassword string `json:"new_password" binding:"required"`
+}
+
+// ChangePassword 修改当前用户密码
+// @Summary 修改当前用户密码
+// @Tags 用户
+// @Accept json
+// @Produce json
+// @Param request body changePasswordRequest true "原密码（如有）与新密码"
+// @Success 200 {object} map[string]string
+// @Failure 400 {object} map[string]string
+// @Failure 401 {object} map[string]string
+// @Security BearerAuth
+// @Router /me/password [patch]
+func (h *Handler) ChangePassword(c *gin.Context) {
+	var req changePasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数不合法"})
+		return
+	}
+
+	userID, ok := CurrentUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "未认证"})
+		return
+	}
+
+	err := h.service.ChangePassword(c.Request.Context(), userID, req.OldPassword, req.NewPassword)
+	if err != nil {
+		respondUserError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "密码已修改"})
 }
 
 // parseUserID 解析路径中的用户 ID。
@@ -270,13 +317,6 @@ type adminCreateUserRequest struct {
 // @Security BearerAuth
 // @Router /admin/users [post]
 func (h *Handler) AdminCreateUser(c *gin.Context) {
-	// TODO(怀民): 实现管理员建号。要点：
-	//  1. 绑定请求体，失败返回 400「请求参数不合法」（与 Register 一致，不透传 gin 的英文绑定错误）；
-	//  2. 调服务层 Register 建号 —— 角色合法性、用户名 / 密码长度、用户名重复（409）
-	//     都由服务层原地判定，handler 不要重复校验；
-	//  3. 错误统一交给 respondUserError 映射；
-	//  4. 成功返回 adminUserView（可复用 toAdminUserViews），不签发令牌 —— 建号不是登录。
-	// 实现完成后删除下面这行占位响应。
 	var req adminCreateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数不合法"})

@@ -344,6 +344,38 @@ func (s *Service) UnbindIdentity(ctx context.Context, userID uint, provider Iden
 	return s.repo.DeleteIdentity(ctx, userID, provider)
 }
 
+// ChangePassword 修改指定用户（已登录的本人）的密码。
+//
+// 账号已设置过密码时必须校验原密码；无密码账号（企业微信自动建号）跳过校验、直接设置。
+// 原密码错误或未提供时返回 ErrPasswordMismatch；新密码长度不合法返回 ErrInvalidPassword。
+func (s *Service) ChangePassword(ctx context.Context, userID uint, oldPassword, newPassword string) error {
+	err := validatePassword(newPassword)
+	if err != nil {
+		return err
+	}
+
+	u, err := s.repo.FindByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+
+	if hasUsablePassword(u) {
+		if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(oldPassword)); err != nil {
+			return ErrPasswordMismatch
+		}
+	}
+
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("生成密码哈希失败: %w", err)
+	}
+
+	if err := s.repo.UpdatePassword(ctx, userID, string(passwordHash)); err != nil {
+		return err
+	}
+	return nil
+}
+
 // hasUsablePassword 判断账号是否设置了可用密码。
 // 企业微信扫码自动建出的账号写入的是占位哈希，不算「有密码」。
 func hasUsablePassword(u *User) bool {
@@ -357,6 +389,14 @@ func validateCredentials(username, password string) error {
 	if n := utf8.RuneCountInString(username); n < usernameMinLen || n > usernameMaxLen {
 		return fmt.Errorf("%w: 需在 %d 到 %d 个字符之间", ErrInvalidUsername, usernameMinLen, usernameMaxLen)
 	}
+	return validatePassword(password)
+}
+
+// validatePassword 校验单个密码的长度（按字符数计），是「设置密码」路径的统一规则出口：
+// 注册（经 validateCredentials）与修改密码（ChangePassword）都走这里 ——
+// 规则只保留一份，将来调整下限 / 上限时不会漏掉任何一条路径。
+// 返回的错误包装 ErrInvalidPassword，可被 errors.Is 识别且携带具体长度要求。
+func validatePassword(password string) error {
 	if n := utf8.RuneCountInString(password); n < passwordMinLen || n > passwordMaxLen {
 		return fmt.Errorf("%w: 需在 %d 到 %d 个字符之间", ErrInvalidPassword, passwordMinLen, passwordMaxLen)
 	}

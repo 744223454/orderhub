@@ -65,6 +65,15 @@ export interface LoginResponse {
 export interface MeResponse {
   user_id: number;
   role: Role;
+  /** 当前账号是否已设置过密码，决定设置页显示「设置密码」还是「修改密码」形态。 */
+  has_password: boolean;
+}
+
+/** 修改密码请求体，对应 PATCH /api/me/password。 */
+export interface ChangePasswordRequest {
+  /** 原密码。仅当账号已设置过密码时必填；无密码账号可不提供（省略与传空串等价）。 */
+  old_password?: string;
+  new_password: string;
 }
 
 /** 下单请求体，对应 POST /api/orders。 */
