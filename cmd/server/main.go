@@ -185,19 +185,25 @@ func newWecomHandler(
 	client *wecom.Client,
 	service *user.Service,
 	jwtSecret string,
-	jwtExpire time.Duration,
+	accessExpire time.Duration,
 ) *wecom.Handler {
-	// 把企业微信 userid 换成「本地账号 + 访问令牌」：首次登录自动建号。
-	login := func(ctx context.Context, externalID string) (*user.User, string, error) {
+	// 把企业微信 userid 换成「本地账号 + 令牌对」：首次登录自动建号。
+	// 与密码登录一致：登录必须成套签发访问令牌与刷新令牌（刷新令牌由 user 模块管理），
+	// 否则扫码登录的用户拿不到续期能力。
+	login := func(ctx context.Context, externalID string) (*user.User, string, string, error) {
 		u, err := service.LoginByExternal(ctx, user.ProviderWecom, externalID)
 		if err != nil {
-			return nil, "", err
+			return nil, "", "", err
 		}
-		token, err := auth.GenerateToken(u, jwtSecret, jwtExpire)
+		token, err := auth.GenerateToken(u, jwtSecret, accessExpire)
 		if err != nil {
-			return nil, "", err
+			return nil, "", "", err
 		}
-		return u, token, nil
+		refresh, err := service.IssueRefresh(ctx, u.ID)
+		if err != nil {
+			return nil, "", "", err
+		}
+		return u, token, refresh, nil
 	}
 
 	// 把企业微信身份绑定到当前登录账号。

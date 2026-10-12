@@ -792,6 +792,51 @@ const docTemplate = `{
                 }
             }
         },
+        "/logout": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "用户"
+                ],
+                "summary": "登出（撤销刷新令牌）",
+                "parameters": [
+                    {
+                        "description": "要撤销的刷新令牌",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_user.logoutRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/me": {
             "get": {
                 "security": [
@@ -1045,6 +1090,57 @@ const docTemplate = `{
                     },
                     "409": {
                         "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/refresh": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "用户"
+                ],
+                "summary": "刷新登录凭证",
+                "parameters": [
+                    {
+                        "description": "刷新令牌",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_user.refreshRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_user.refreshResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -1367,7 +1463,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "old_password": {
-                    "description": "OldPassword 原密码。仅当账号已设置过密码时必填；无密码账号（如企微自动建号）直接设置时省略。",
+                    "description": "OldPassword 原密码。仅当账号已设置过密码时必填；无密码账号（如企微自动建号）可不提供。",
                     "type": "string"
                 }
             }
@@ -1435,8 +1531,12 @@ const docTemplate = `{
         "internal_user.loginResponse": {
             "type": "object",
             "properties": {
+                "refresh_token": {
+                    "description": "RefreshToken 刷新令牌（长寿命的不透明串），访问令牌过期后凭它静默换取新的一对令牌。\n客户端应把它当作与密码同级的敏感信息保存。",
+                    "type": "string"
+                },
                 "token": {
-                    "description": "Token Bearer 访问令牌，后续请求需放入 Authorization 头。",
+                    "description": "Token Bearer 访问令牌（短寿命），后续请求需放入 Authorization 头。",
                     "type": "string"
                 },
                 "user": {
@@ -1446,6 +1546,43 @@ const docTemplate = `{
                             "$ref": "#/definitions/internal_user.User"
                         }
                     ]
+                }
+            }
+        },
+        "internal_user.logoutRequest": {
+            "type": "object",
+            "required": [
+                "refresh_token"
+            ],
+            "properties": {
+                "refresh_token": {
+                    "description": "RefreshToken 要撤销的刷新令牌原始串。",
+                    "type": "string"
+                }
+            }
+        },
+        "internal_user.refreshRequest": {
+            "type": "object",
+            "required": [
+                "refresh_token"
+            ],
+            "properties": {
+                "refresh_token": {
+                    "description": "RefreshToken 客户端保存的刷新令牌原始串。",
+                    "type": "string"
+                }
+            }
+        },
+        "internal_user.refreshResponse": {
+            "type": "object",
+            "properties": {
+                "refresh_token": {
+                    "description": "RefreshToken 轮转后的新刷新令牌；旧的已被作废，客户端必须替换保存。",
+                    "type": "string"
+                },
+                "token": {
+                    "description": "Token 新的 Bearer 访问令牌。",
+                    "type": "string"
                 }
             }
         },
@@ -1615,8 +1752,12 @@ const docTemplate = `{
         "internal_wecom.loginResponse": {
             "type": "object",
             "properties": {
+                "refresh_token": {
+                    "description": "RefreshToken 刷新令牌（长寿命的不透明串），访问令牌过期后凭它静默换取新的一对令牌。\n客户端应把它当作与密码同级的敏感信息保存。",
+                    "type": "string"
+                },
                 "token": {
-                    "description": "Token Bearer 访问令牌，后续请求需放入 Authorization 头。",
+                    "description": "Token Bearer 访问令牌（短寿命），后续请求需放入 Authorization 头。",
                     "type": "string"
                 },
                 "user": {

@@ -30,11 +30,11 @@ const (
 	retryAfterSeconds = "60"
 )
 
-// LoginFunc 用企业微信 userid 完成本地登录，返回已登录用户与访问令牌。
+// LoginFunc 用企业微信 userid 完成本地登录，返回已登录用户与令牌对（访问令牌、刷新令牌）。
 //
-// 由 main.go 注入（内部组合 user.Service.LoginByExternal 与 auth.GenerateToken），
+// 由 main.go 注入（内部组合 user.Service 的登录与签发能力），
 // 使本模块不必依赖 auth 包，只依赖 user 包的公开类型。
-type LoginFunc func(ctx context.Context, externalID string) (*user.User, string, error)
+type LoginFunc func(ctx context.Context, externalID string) (*user.User, string, string, error)
 
 // BindFunc 把企业微信身份绑定到指定账号。由 main.go 注入。
 type BindFunc func(ctx context.Context, userID uint, externalID string) error
@@ -227,8 +227,11 @@ func bindCallback(c *gin.Context) (callbackRequest, bool) {
 // loginResponse 是扫码登录成功后的响应载荷。
 // 形状与密码登录接口（POST /api/login）保持一致，前端可以复用同一套会话写入逻辑。
 type loginResponse struct {
-	// Token Bearer 访问令牌，后续请求需放入 Authorization 头。
+	// Token Bearer 访问令牌（短寿命），后续请求需放入 Authorization 头。
 	Token string `json:"token"`
+	// RefreshToken 刷新令牌（长寿命的不透明串），访问令牌过期后凭它静默换取新的一对令牌。
+	// 客户端应把它当作与密码同级的敏感信息保存。
+	RefreshToken string `json:"refresh_token"`
 	// User 登录成功的用户信息（不含密码哈希）。
 	User *user.User `json:"user"`
 }
@@ -266,12 +269,12 @@ func (h *Handler) Login(c *gin.Context) {
 		return
 	}
 
-	u, token, err := h.login(c.Request.Context(), identity.UserID)
+	u, token, refresh, err := h.login(c.Request.Context(), identity.UserID)
 	if err != nil {
 		respondWecomError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, loginResponse{Token: token, User: u})
+	c.JSON(http.StatusOK, loginResponse{Token: token, RefreshToken: refresh, User: u})
 }
 
 // Bind 把企业微信身份绑定到当前登录账号
