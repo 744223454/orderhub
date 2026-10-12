@@ -11,6 +11,7 @@ import type {
   AdminUser,
   AdminUserPage,
   ApiErrorBody,
+  ChangePasswordRequest,
   CreateOrderRequest,
   CreateUserRequest,
   IdentityProvider,
@@ -101,6 +102,11 @@ export const api = {
   /** 获取当前登录用户，可用来校验本地 token 是否仍然有效。 */
   me(): Promise<MeResponse> {
     return request<MeResponse>('/api/me');
+  },
+
+  /** 修改当前登录用户的密码；无密码账号（企微自动建号）不提供 old_password 即为首次设置。 */
+  changePassword(body: ChangePasswordRequest): Promise<void> {
+    return request<void>('/api/me/password', { method: 'PATCH', body: JSON.stringify(body) });
   },
 
   /** 下单。 */
