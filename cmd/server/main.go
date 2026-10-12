@@ -82,7 +82,7 @@ func main() {
 
 	// 登录层：需携带有效 JWT
 	authed := api.Group("", auth.Auth(jwtSecret))
-	authed.GET("/me", handler.Me)
+	user.MeRoutes(authed, handler)
 	order.UserRoutes(authed, orderHandler)
 
 	// 角色层：仅运营 / 管理员可访问（订单管理与用户管理接口）

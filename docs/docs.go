@@ -826,6 +826,65 @@ const docTemplate = `{
                 }
             }
         },
+        "/me/password": {
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "用户"
+                ],
+                "summary": "修改当前用户密码",
+                "parameters": [
+                    {
+                        "description": "原密码（如有）与新密码",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_user.changePasswordRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/orders": {
             "get": {
                 "security": [
@@ -1293,6 +1352,22 @@ const docTemplate = `{
                 },
                 "updated_at": {
                     "description": "UpdatedAt 最后更新时间。",
+                    "type": "string"
+                }
+            }
+        },
+        "internal_user.changePasswordRequest": {
+            "type": "object",
+            "required": [
+                "new_password"
+            ],
+            "properties": {
+                "new_password": {
+                    "description": "NewPassword 新密码，长度规则与注册一致（8~16 个字符）。",
+                    "type": "string"
+                },
+                "old_password": {
+                    "description": "OldPassword 原密码。仅当账号已设置过密码时必填；无密码账号（如企微自动建号）直接设置时省略。",
                     "type": "string"
                 }
             }

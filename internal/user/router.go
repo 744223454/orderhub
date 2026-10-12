@@ -8,6 +8,13 @@ func AuthRoutes(rg *gin.RouterGroup, h *Handler) {
 	rg.POST("/login", h.Login)
 }
 
+// MeRoutes 注册当前登录用户的自助接口（查询本人信息 / 修改密码）到给定路由分组
+// （需已通过 auth.Auth 中间件）。
+func MeRoutes(rg *gin.RouterGroup, h *Handler) {
+	rg.GET("/me", h.Me)
+	rg.PATCH("/me/password", h.ChangePassword)
+}
+
 // AdminRoutes 注册仅管理员可访问的用户管理接口到给定路由分组
 // （需已通过 auth.RequireRole(user.RoleAdmin) 中间件）。
 //
