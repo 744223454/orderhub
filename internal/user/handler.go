@@ -36,7 +36,8 @@ func respondUserError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, ErrUsernameExists):
 		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
-	case errors.Is(err, ErrInvalidCredentials):
+	case errors.Is(err, ErrInvalidCredentials),
+		errors.Is(err, ErrInvalidRefreshToken):
 		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 	case errors.Is(err, ErrInvalidRole),
 		errors.Is(err, ErrInvalidUsername),
@@ -104,8 +105,11 @@ type loginRequest struct {
 
 // loginResponse 是登录成功后返回的载荷。
 type loginResponse struct {
-	// Token Bearer 访问令牌，后续请求需放入 Authorization 头。
+	// Token Bearer 访问令牌（短寿命），后续请求需放入 Authorization 头。
 	Token string `json:"token"`
+	// RefreshToken 刷新令牌（长寿命的不透明串），访问令牌过期后凭它静默换取新的一对令牌。
+	// 客户端应把它当作与密码同级的敏感信息保存。
+	RefreshToken string `json:"refresh_token"`
 	// User 登录成功的用户信息（不含密码哈希）。
 	User *User `json:"user"`
 }
@@ -139,7 +143,12 @@ func (h *Handler) Login(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, loginResponse{Token: token, User: u})
+	refresh, err := h.service.IssueRefresh(c.Request.Context(), u.ID)
+	if err != nil {
+		respondUserError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, loginResponse{Token: token, RefreshToken: refresh, User: u})
 }
 
 // Me 获取当前登录用户
@@ -207,6 +216,78 @@ func (h *Handler) ChangePassword(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "密码已修改"})
+}
+
+type refreshRequest struct {
+	// RefreshToken 客户端保存的刷新令牌原始串。
+	RefreshToken string `json:"refresh_token" binding:"required"`
+}
+
+// refreshResponse 是刷新成功后的返回载荷（令牌对全套换新）。
+type refreshResponse struct {
+	// Token 新的 Bearer 访问令牌。
+	Token string `json:"token"`
+	// RefreshToken 轮转后的新刷新令牌；旧的已被作废，客户端必须替换保存。
+	RefreshToken string `json:"refresh_token"`
+}
+
+// Refresh 用刷新令牌换取新的令牌对（无感刷新的服务端入口）
+// @Summary 刷新登录凭证
+// @Tags 用户
+// @Accept json
+// @Produce json
+// @Param request body refreshRequest true "刷新令牌"
+// @Success 200 {object} refreshResponse
+// @Failure 400 {object} map[string]string
+// @Failure 401 {object} map[string]string
+// @Router /refresh [post]
+func (h *Handler) Refresh(c *gin.Context) {
+	var req refreshRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数不合法"})
+		return
+	}
+
+	u, newRefresh, err := h.service.RotateRefresh(c.Request.Context(), req.RefreshToken)
+	if err != nil {
+		respondUserError(c, err)
+		return
+	}
+	token, err := h.issue(u)
+	if err != nil {
+		respondUserError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, refreshResponse{Token: token, RefreshToken: newRefresh})
+}
+
+type logoutRequest struct {
+	// RefreshToken 要撤销的刷新令牌原始串。
+	RefreshToken string `json:"refresh_token" binding:"required"`
+}
+
+// Logout 撤销刷新令牌（登出）
+// @Summary 登出（撤销刷新令牌）
+// @Tags 用户
+// @Accept json
+// @Produce json
+// @Param request body logoutRequest true "要撤销的刷新令牌"
+// @Success 200 {object} map[string]string
+// @Failure 400 {object} map[string]string
+// @Router /logout [post]
+func (h *Handler) Logout(c *gin.Context) {
+	var req logoutRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数不合法"})
+		return
+	}
+
+	if err := h.service.RevokeRefresh(c.Request.Context(), req.RefreshToken); err != nil {
+		respondUserError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "已登出"})
 }
 
 // parseUserID 解析路径中的用户 ID。

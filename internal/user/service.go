@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"golang.org/x/crypto/bcrypt"
@@ -39,11 +40,13 @@ const externalUsernameAttempts = 5
 // Service 承载用户模块的业务逻辑。
 type Service struct {
 	repo *Repo
+	// refreshExpire 刷新令牌的有效期，由装配层按环境注入（测试可给短值）。
+	refreshExpire time.Duration
 }
 
-// NewService 创建用户服务，repo 为用户数据仓库。
-func NewService(repo *Repo) *Service {
-	return &Service{repo: repo}
+// NewService 创建用户服务，repo 为用户数据仓库，refreshExpire 为刷新令牌有效期。
+func NewService(repo *Repo, refreshExpire time.Duration) *Service {
+	return &Service{repo: repo, refreshExpire: refreshExpire}
 }
 
 // Register 创建新用户，密码经 bcrypt 哈希后落库，返回创建成功的用户。
@@ -371,6 +374,108 @@ func (s *Service) ChangePassword(ctx context.Context, userID uint, oldPassword, 
 	}
 
 	if err := s.repo.UpdatePassword(ctx, userID, string(passwordHash)); err != nil {
+		return err
+	}
+	// 改密成功后撤销全部刷新令牌：密码已变，所有旧会话的「续期能力」必须立即消失，
+	// 否则改了密码也赶不走已泄露的刷新令牌。
+	if err := s.repo.RevokeAllRefreshTokensByUser(ctx, userID); err != nil {
+		return err
+	}
+	return nil
+}
+
+// IssueRefresh 为指定用户签发一枚刷新令牌，返回客户端应保存的原始串。
+//
+// 原始串只在签发响应里出现这一次（服务端只存哈希），后续所有校验都通过
+// hashRefreshToken 后查表完成。可见性约束：本方法的返回值为敏感信息，
+// 不要写进日志。
+func (s *Service) IssueRefresh(ctx context.Context, userID uint) (string, error) {
+	raw, hash, err := newRefreshTokenSecret()
+	if err != nil {
+		return "", fmt.Errorf("生成原始串与哈希失败: %w", err)
+	}
+	refreshToken := &RefreshToken{
+		UserID:    userID,
+		TokenHash: hash,
+		ExpiresAt: time.Now().Add(s.refreshExpire),
+	}
+	if err := s.repo.CreateRefreshToken(ctx, refreshToken); err != nil {
+		return "", fmt.Errorf("签发刷新令牌失败: %w", err)
+	}
+	return raw, nil
+}
+
+// RotateRefresh 用一枚刷新令牌换取新的刷新令牌（轮转），并返回该令牌所属的用户。
+//
+// 这是整个会话链的核心，也是安全性要求最高的地方。约定：
+//   - 任何形态的「不可用」（不存在 / 已撤销 / 已过期）一律返回 ErrInvalidRefreshToken，
+//     对外不区分原因（见该哨兵的注释）；
+//   - 「查到了但已被撤销」不是普通的无效：旧串在轮转后再次出现，说明它可能同时
+//     存在于两个地方（泄露信号），应撤销该用户的**全部**刷新令牌再拒绝；
+//   - 「撤销旧串」必须依赖 repo.RevokeRefreshToken 的 CAS 返回值判定自己是否为
+//     本次轮转的胜者——并发下若有人先撤销了，本方也应走重放处理，不能各自都发新串。
+//
+// 返回的用户以数据库当前值为准（角色等字段可能已变化），调用方据此签发新的访问令牌。
+//
+// 实现备注：撤销旧串与签发新串分两步执行、未包事务——中途失败至多令该会话
+// 需要重新登录，不产生安全漏洞（如需收紧可移入 repo.WithinTx）。
+func (s *Service) RotateRefresh(ctx context.Context, raw string) (*User, string, error) {
+	hash := hashRefreshToken(raw)
+	originalToken, err := s.repo.FindRefreshTokenByHash(ctx, hash)
+	if errors.Is(err, ErrRefreshTokenNotFound) {
+		return nil, "", ErrInvalidRefreshToken
+	}
+	if err != nil {
+		return nil, "", err
+	}
+
+	if originalToken.RevokedAt != nil {
+		if err := s.repo.RevokeAllRefreshTokensByUser(ctx, originalToken.UserID); err != nil {
+			return nil, "", err
+		}
+		return nil, "", ErrInvalidRefreshToken
+	}
+	if originalToken.ExpiresAt.Before(time.Now()) {
+		return nil, "", ErrInvalidRefreshToken
+	}
+
+	revoked, err := s.repo.RevokeRefreshToken(ctx, originalToken.ID)
+	if err != nil {
+		return nil, "", err
+	}
+	if !revoked {
+		if err := s.repo.RevokeAllRefreshTokensByUser(ctx, originalToken.UserID); err != nil {
+			return nil, "", err
+		}
+		return nil, "", ErrInvalidRefreshToken
+	}
+	raw, err = s.IssueRefresh(ctx, originalToken.UserID)
+	if err != nil {
+		return nil, "", err
+	}
+	user, err := s.repo.FindByID(ctx, originalToken.UserID)
+	if err != nil {
+		return nil, "", err
+	}
+	return user, raw, nil
+}
+
+// RevokeRefresh 撤销一枚刷新令牌（登出）。
+//
+// 幂等：串不存在、已被撤销、已过期都视为成功返回 nil——「撤销」的目标是
+// 「这枚串以后不能再用」，三种情形下该目标都已达成，对调用方没有区别。
+func (s *Service) RevokeRefresh(ctx context.Context, raw string) error {
+	hash := hashRefreshToken(raw)
+	originalToken, err := s.repo.FindRefreshTokenByHash(ctx, hash)
+	if errors.Is(err, ErrRefreshTokenNotFound) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("无法撤销刷新令牌: %w", err)
+	}
+
+	_, err = s.repo.RevokeRefreshToken(ctx, originalToken.ID)
+	if err != nil {
 		return err
 	}
 	return nil
