@@ -13,7 +13,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { ConfigProvider } from 'antd';
+import { App, ConfigProvider } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 
 import { SessionProvider } from '@/lib/auth';
@@ -24,7 +24,9 @@ import { SessionProvider } from '@/lib/auth';
 export function Providers({ children }: { children: ReactNode }) {
   return (
     <ConfigProvider locale={zhCN}>
-      <SessionProvider>{children}</SessionProvider>
+      <App>
+        <SessionProvider>{children}</SessionProvider>
+      </App>
     </ConfigProvider>
   );
 }

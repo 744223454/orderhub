@@ -16,6 +16,7 @@ import {
 } from 'antd';
 
 import { AuthGuard } from '@/components/auth-guard';
+import { PageContainer } from '@/components/page-container';
 import { UserCreateModal } from '@/components/user-create-modal';
 import { api, ApiError } from '@/lib/api';
 import { useSession } from '@/lib/auth';
@@ -218,15 +219,15 @@ function UsersTable() {
   ];
 
   return (
-    <Space orientation="vertical" size={16} style={{ width: '100%' }}>
-      <Card
-        title="用户管理"
-        extra={
-          <Button type="primary" onClick={() => setCreateOpen(true)}>
-            新建用户
-          </Button>
-        }
-      >
+    <PageContainer
+      title="用户管理"
+      extra={
+        <Button type="primary" onClick={() => setCreateOpen(true)}>
+          新建用户
+        </Button>
+      }
+    >
+      <Card>
         <Space orientation="vertical" size={12} style={{ width: '100%' }}>
           <Input.Search
             allowClear
@@ -283,6 +284,6 @@ function UsersTable() {
           }
         }}
       />
-    </Space>
+    </PageContainer>
   );
 }

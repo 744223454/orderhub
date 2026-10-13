@@ -16,8 +16,8 @@ import type { ReactNode } from 'react';
 import type { Role } from '@/lib/types';
 import { useSession } from '@/lib/auth';
 import { useRouter } from 'next/navigation';
-import { Spin } from 'antd';
 import { homePathFor } from '@/lib/roles';
+import { AppSkeleton } from '@/components/app-skeleton';
 
 export interface AuthGuardProps {
   /** 允许通过的角色；省略表示「已登录即可」。 */
@@ -69,7 +69,7 @@ export function AuthGuard({ allow, children }: AuthGuardProps) {
 
   // 初始化未完成，或已决定跳转但跳转尚未生效 —— 两种情况下都只渲染加载态。
   if (!hydrated || redirectTo !== null) {
-    return <Spin />;
+    return <AppSkeleton />;
   }
 
   return <>{children}</>;
