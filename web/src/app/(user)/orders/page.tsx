@@ -5,6 +5,7 @@ import type { TableProps } from 'antd';
 import { Alert, Button, Card, Form, Input, InputNumber, Space, Table, Typography } from 'antd';
 
 import { OrderStatusTag } from '@/components/order-status-tag';
+import { PageContainer } from '@/components/page-container';
 import { api, ApiError } from '@/lib/api';
 import { formatAmount } from '@/lib/format';
 import type { Order, OrderPage, OrderStatus } from '@/lib/types';
@@ -199,68 +200,70 @@ export default function MyOrdersPage() {
   return (
     // 用 orientation 而不是 direction：v6 里 direction 已标 @deprecated（v7 会移除），
     // 控制台实测会打印 `[antd: Space] 'direction' is deprecated`。
-    <Space orientation="vertical" size={16} style={{ width: '100%' }}>
-      <Card title="新建订单">
-        <Form<CreateOrderFormValues>
-          form={form}
-          layout="inline"
-          requiredMark={false}
-          onFinish={handleCreate}
-        >
-          <Form.Item
-            label="商品名称"
-            name="product_name"
-            rules={[{ required: true, message: '请输入商品名称' }]}
+    <PageContainer title="我的订单">
+      <Space orientation="vertical" size={16} style={{ width: '100%' }}>
+        <Card title="新建订单">
+          <Form<CreateOrderFormValues>
+            form={form}
+            layout="inline"
+            requiredMark={false}
+            onFinish={handleCreate}
           >
-            <Input placeholder="例如：机械键盘" style={{ width: 200 }} />
-          </Form.Item>
+            <Form.Item
+              label="商品名称"
+              name="product_name"
+              rules={[{ required: true, message: '请输入商品名称' }]}
+            >
+              <Input placeholder="例如：机械键盘" style={{ width: 200 }} />
+            </Form.Item>
 
-          <Form.Item
-            label="金额"
-            name="amount"
-            // min: 1 不能去掉：后端 createOrderRequest 的 `binding:"required"` 对整数意味着
-            // 「非零」，amount = 0 会被绑定层拦成 400「请求参数不合法」——文案里根本不提金额。
-            rules={[
-              { required: true, message: '请输入金额' },
-              { type: 'number', min: 1, message: '金额至少 1 元' },
-            ]}
-          >
-            <InputNumber min={1} precision={2} placeholder="单位：元" style={{ width: 160 }} />
-          </Form.Item>
+            <Form.Item
+              label="金额"
+              name="amount"
+              // min: 1 不能去掉：后端 createOrderRequest 的 `binding:"required"` 对整数意味着
+              // 「非零」，amount = 0 会被绑定层拦成 400「请求参数不合法」——文案里根本不提金额。
+              rules={[
+                { required: true, message: '请输入金额' },
+                { type: 'number', min: 1, message: '金额至少 1 元' },
+              ]}
+            >
+              <InputNumber min={1} precision={2} placeholder="单位：元" style={{ width: 160 }} />
+            </Form.Item>
 
-          <Form.Item style={{ marginBottom: 0 }}>
-            <Button type="primary" htmlType="submit" loading={creating}>
-              创建订单
-            </Button>
-          </Form.Item>
-        </Form>
-      </Card>
+            <Form.Item style={{ marginBottom: 0 }}>
+              <Button type="primary" htmlType="submit" loading={creating}>
+                创建订单
+              </Button>
+            </Form.Item>
+          </Form>
+        </Card>
 
-      <Card title="我的订单">
-        {loadError !== null && (
-          <Alert type="error" title={loadError} showIcon style={{ marginBottom: 16 }} />
-        )}
-        {actionError !== null && (
-          <Alert type="error" title={actionError} showIcon style={{ marginBottom: 16 }} />
-        )}
+        <Card>
+          {loadError !== null && (
+            <Alert type="error" title={loadError} showIcon style={{ marginBottom: 16 }} />
+          )}
+          {actionError !== null && (
+            <Alert type="error" title={actionError} showIcon style={{ marginBottom: 16 }} />
+          )}
 
-        <Table<Order>
-          rowKey="id"
-          columns={columns}
-          // orders 为 null 时给空数组，Table 才不会因为 dataSource 是 null 而崩。
-          dataSource={orders?.items ?? []}
-          // loading 直接由「数据是否到位」算出来，不用额外的 state。
-          loading={orders === null}
-          // 分页状态以后端回显为准：入参越界时后端会回落，前端跟着它走就不会错位。
-          pagination={{
-            current: orders?.page ?? 1,
-            pageSize: orders?.page_size ?? 20,
-            total: orders?.total ?? 0,
-            showSizeChanger: false,
-          }}
-          onChange={(p) => setPage(p.current ?? 1)}
-        />
-      </Card>
-    </Space>
+          <Table<Order>
+            rowKey="id"
+            columns={columns}
+            // orders 为 null 时给空数组，Table 才不会因为 dataSource 是 null 而崩。
+            dataSource={orders?.items ?? []}
+            // loading 直接由「数据是否到位」算出来，不用额外的 state。
+            loading={orders === null}
+            // 分页状态以后端回显为准：入参越界时后端会回落，前端跟着它走就不会错位。
+            pagination={{
+              current: orders?.page ?? 1,
+              pageSize: orders?.page_size ?? 20,
+              total: orders?.total ?? 0,
+              showSizeChanger: false,
+            }}
+            onChange={(p) => setPage(p.current ?? 1)}
+          />
+        </Card>
+      </Space>
+    </PageContainer>
   );
 }

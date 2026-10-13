@@ -5,6 +5,7 @@ import type { TableProps } from 'antd';
 import { Alert, Button, Card, Space, Table, Typography } from 'antd';
 
 import { OrderStatusTag } from '@/components/order-status-tag';
+import { PageContainer } from '@/components/page-container';
 import { api, ApiError } from '@/lib/api';
 import { formatAmount } from '@/lib/format';
 import type { Order, OrderPage, OrderStatus } from '@/lib/types';
@@ -196,30 +197,32 @@ export default function AdminOrdersPage() {
   ];
 
   return (
-    <Card title="订单管理">
-      {loadError !== null && (
-        <Alert type="error" title={loadError} showIcon style={{ marginBottom: 16 }} />
-      )}
-      {actionError !== null && (
-        <Alert type="error" title={actionError} showIcon style={{ marginBottom: 16 }} />
-      )}
+    <PageContainer title="订单管理">
+      <Card>
+        {loadError !== null && (
+          <Alert type="error" title={loadError} showIcon style={{ marginBottom: 16 }} />
+        )}
+        {actionError !== null && (
+          <Alert type="error" title={actionError} showIcon style={{ marginBottom: 16 }} />
+        )}
 
-      <Table<Order>
-        rowKey="id"
-        columns={columns}
-        // orders 为 null 时给空数组，Table 才不会因为 dataSource 是 null 而崩。
-        dataSource={orders?.items ?? []}
-        // loading 由「数据是否到位」直接算出来，不用额外的 state 去同步。
-        loading={orders === null}
-        // 分页状态以后端回显为准：入参越界时后端会回落，前端跟着它走就不会错位。
-        pagination={{
-          current: orders?.page ?? 1,
-          pageSize: orders?.page_size ?? 20,
-          total: orders?.total ?? 0,
-          showSizeChanger: false,
-        }}
-        onChange={(pagination) => setPage(pagination.current ?? 1)}
-      />
-    </Card>
+        <Table<Order>
+          rowKey="id"
+          columns={columns}
+          // orders 为 null 时给空数组，Table 才不会因为 dataSource 是 null 而崩。
+          dataSource={orders?.items ?? []}
+          // loading 由「数据是否到位」直接算出来，不用额外的 state 去同步。
+          loading={orders === null}
+          // 分页状态以后端回显为准：入参越界时后端会回落，前端跟着它走就不会错位。
+          pagination={{
+            current: orders?.page ?? 1,
+            pageSize: orders?.page_size ?? 20,
+            total: orders?.total ?? 0,
+            showSizeChanger: false,
+          }}
+          onChange={(pagination) => setPage(pagination.current ?? 1)}
+        />
+      </Card>
+    </PageContainer>
   );
 }

@@ -20,6 +20,7 @@ import {
 } from 'antd';
 
 import { AuthGuard } from '@/components/auth-guard';
+import { PageContainer } from '@/components/page-container';
 import { api, ApiError } from '@/lib/api';
 import {
   buildOrgTree,
@@ -259,108 +260,109 @@ function OrgDirectoryView() {
   ];
 
   return (
-    <Row gutter={16}>
-      <Col xs={24} lg={9} xl={7}>
-        <Card title="组织架构" size="small">
-          {data === null ? (
-            <Spin />
-          ) : view.tree.length === 0 ? (
-            // 空态必须给出**两种**可能：这不是防御性文案，而是真实的两种成因
-            // （可见范围为空 / 接口形状变了），后端的解析层面区分不了它们。
-            <Alert
-              type="warning"
-              showIcon
-              title="没有读到任何部门"
-              description="请确认企业微信自建应用的「可见范围」是否包含目标部门；若刚刚还能看到，也可能是接口返回结构发生了变化。"
-            />
-          ) : (
-            <Tree
-              treeData={treeData}
-              selectedKeys={[activeKey]}
-              showLine
-              blockNode
-              defaultExpandAll
-              onSelect={(keys) => {
-                // 再次点击已选中的节点会返回空数组，此时回落到「全部」，
-                // 否则会出现「树上没选中、表里显示全部」的错位。
-                setSelectedKey(keys.length > 0 ? String(keys[0]) : ALL_KEY);
-              }}
-            />
-          )}
-          <Typography.Paragraph
-            type="secondary"
-            style={{ fontSize: 12, marginTop: 12, marginBottom: 0 }}
-          >
-            数字为本部门「直属」成员数，不含子部门。只显示企业微信应用「可见范围」内的部门与成员。
-          </Typography.Paragraph>
-        </Card>
-      </Col>
-
-      <Col xs={24} lg={15} xl={17}>
-        <Card
-          title={`成员（${rows.length} / ${view.members.length}）`}
-          size="small"
-          extra={
-            // 文案用「重新抓取」而不是「刷新」：这个按钮会 bypass 服务端缓存、真的重新
-            // 调企微（约 1 + 部门数 次请求），名字要说清代价。
-            // 顺带的好处：antd 会给**两个汉字**的按钮自动插空格（渲染成「刷 新」），
-            // 三个字以上不会，按文案定位按钮的自动化脚本因此更稳。
-            <Button size="small" onClick={handleRefresh} loading={refreshing}>
-              重新抓取
-            </Button>
-          }
-        >
-          <Space orientation="vertical" size={12} style={{ width: '100%' }}>
-            <Space size={12} wrap>
-              <Input
-                allowClear
-                value={keyword}
-                placeholder="搜索姓名 / 帐号 / 职务 / 部门"
-                style={{ width: 260 }}
-                onChange={(e) => setKeyword(e.target.value)}
+    <PageContainer
+      title="组织架构"
+      extra={
+        // 文案用「重新抓取」而不是「刷新」：这个按钮会 bypass 服务端缓存、真的重新
+        // 调企微（约 1 + 部门数 次请求），名字要说清代价。
+        // 顺带的好处：antd 会给**两个汉字**的按钮自动插空格（渲染成「刷 新」），
+        // 三个字以上不会，按文案定位按钮的自动化脚本因此更稳。
+        <Button onClick={handleRefresh} loading={refreshing}>
+          重新抓取
+        </Button>
+      }
+    >
+      <Row gutter={16}>
+        <Col xs={24} lg={9} xl={7}>
+          <Card title="部门" size="small">
+            {data === null ? (
+              <Spin />
+            ) : view.tree.length === 0 ? (
+              // 空态必须给出**两种**可能：这不是防御性文案，而是真实的两种成因
+              // （可见范围为空 / 接口形状变了），后端的解析层面区分不了它们。
+              <Alert
+                type="warning"
+                showIcon
+                title="没有读到任何部门"
+                description="请确认企业微信自建应用的「可见范围」是否包含目标部门；若刚刚还能看到，也可能是接口返回结构发生了变化。"
               />
-              <Segmented
-                value={statusFilter}
-                options={statusOptions}
-                onChange={(value) => setStatusFilter(String(value))}
+            ) : (
+              <Tree
+                treeData={treeData}
+                selectedKeys={[activeKey]}
+                showLine
+                blockNode
+                defaultExpandAll
+                onSelect={(keys) => {
+                  // 再次点击已选中的节点会返回空数组，此时回落到「全部」，
+                  // 否则会出现「树上没选中、表里显示全部」的错位。
+                  setSelectedKey(keys.length > 0 ? String(keys[0]) : ALL_KEY);
+                }}
               />
-              <Space size={6}>
-                <Switch
-                  size="small"
-                  checked={includeChildren}
-                  disabled={activeKey === ALL_KEY}
-                  onChange={setIncludeChildren}
-                />
-                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  包含子部门
-                </Typography.Text>
-              </Space>
-            </Space>
-
-            {loadError !== null && <Alert type="error" title={loadError} showIcon />}
-
-            <Table<OrgMember>
-              rowKey="userid"
-              size="small"
-              columns={columns}
-              dataSource={rows}
-              loading={data === null}
-              pagination={{ pageSize: 20, showSizeChanger: false, hideOnSinglePage: true }}
-              locale={{ emptyText: data === null ? ' ' : '没有符合条件的成员' }}
-            />
-
-            {data !== null && (
-              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                数据抓取于 {new Date(data.fetched_at).toLocaleString('zh-CN')}
-                {data.from_cache ? '（服务端缓存，5 分钟内有效）' : '（刚抓取）'}
-                ；企业微信接口按分钟限频， 请勿频繁点击刷新。
-                <br />
-                「未激活」表示该成员尚未激活企业微信，人在通讯录里、接口也返回，但无法登录企业微信。
-              </Typography.Text>
             )}
-          </Space>
-        </Card>
-      </Col>
-    </Row>
+            <Typography.Paragraph
+              type="secondary"
+              style={{ fontSize: 12, marginTop: 12, marginBottom: 0 }}
+            >
+              数字为本部门「直属」成员数，不含子部门。只显示企业微信应用「可见范围」内的部门与成员。
+            </Typography.Paragraph>
+          </Card>
+        </Col>
+
+        <Col xs={24} lg={15} xl={17}>
+          <Card title={`成员（${rows.length} / ${view.members.length}）`} size="small">
+            <Space orientation="vertical" size={12} style={{ width: '100%' }}>
+              <Space size={12} wrap>
+                <Input
+                  allowClear
+                  value={keyword}
+                  placeholder="搜索姓名 / 帐号 / 职务 / 部门"
+                  style={{ width: 260 }}
+                  onChange={(e) => setKeyword(e.target.value)}
+                />
+                <Segmented
+                  value={statusFilter}
+                  options={statusOptions}
+                  onChange={(value) => setStatusFilter(String(value))}
+                />
+                <Space size={6}>
+                  <Switch
+                    size="small"
+                    checked={includeChildren}
+                    disabled={activeKey === ALL_KEY}
+                    onChange={setIncludeChildren}
+                  />
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    包含子部门
+                  </Typography.Text>
+                </Space>
+              </Space>
+
+              {loadError !== null && <Alert type="error" title={loadError} showIcon />}
+
+              <Table<OrgMember>
+                rowKey="userid"
+                size="small"
+                columns={columns}
+                dataSource={rows}
+                loading={data === null}
+                pagination={{ pageSize: 20, showSizeChanger: false, hideOnSinglePage: true }}
+                locale={{ emptyText: data === null ? ' ' : '没有符合条件的成员' }}
+              />
+
+              {data !== null && (
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  数据抓取于 {new Date(data.fetched_at).toLocaleString('zh-CN')}
+                  {data.from_cache ? '（服务端缓存，5 分钟内有效）' : '（刚抓取）'}
+                  ；企业微信接口按分钟限频， 请勿频繁点击刷新。
+                  <br />
+                  「未激活」表示该成员尚未激活企业微信，人在通讯录里、接口也返回，但无法登录企业微信。
+                </Typography.Text>
+              )}
+            </Space>
+          </Card>
+        </Col>
+      </Row>
+    </PageContainer>
   );
 }
