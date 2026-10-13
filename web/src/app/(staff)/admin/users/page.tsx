@@ -1,9 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import type { TableProps } from 'antd';
 import {
   Alert,
+  App,
   Button,
   Card,
   Dropdown,
@@ -14,6 +14,7 @@ import {
   Tag,
   Typography,
 } from 'antd';
+import type { TableProps } from 'antd';
 
 import { AuthGuard } from '@/components/auth-guard';
 import { PageContainer } from '@/components/page-container';
@@ -53,7 +54,7 @@ export default function AdminUsersPage() {
 }
 
 function UsersTable() {
-  const { session } = useSession();
+  const { session, signOut } = useSession();
 
   // data 为 null 表示首屏还没加载完，loading 直接由它算出来，不必再维护一个 boolean。
   const [data, setData] = useState<AdminUserPage | null>(null);
@@ -68,10 +69,11 @@ function UsersTable() {
   // 行内操作的状态与错误，与整页加载分开 —— 否则点一次改角色整张表都会变成 loading。
   const [actingId, setActingId] = useState<number | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
 
   // 「新建用户」弹窗的开合状态。放在页面而不是弹窗内部：触发按钮在页面上，两处要联动。
   const [createOpen, setCreateOpen] = useState(false);
+
+  const { message } = App.useApp();
 
   const loadUsers = useCallback(async (): Promise<void> => {
     try {
@@ -102,7 +104,6 @@ function UsersTable() {
 
     setActingId(target.id);
     setActionError(null);
-    setNotice(null);
     try {
       const updated = await api.updateUserRole(target.id, { role });
       setData((prev) =>
@@ -111,13 +112,14 @@ function UsersTable() {
           : { ...prev, items: prev.items.map((u) => (u.id === updated.id ? updated : u)) },
       );
 
-      // 改的是自己时要说一声：JWT 里编码的角色是签发那一刻的快照，
+      // 改的是自己时必须自动登出：JWT 里编码的角色是签发那一刻的快照，
       // 不重新登录的话，界面上会继续按旧角色显示，而接口已经按新角色判权限了。
-      setNotice(
-        session !== null && session.user.id === updated.id
-          ? '已修改你自己的角色，请重新登录后生效'
-          : null,
-      );
+      // 用全局 message 而不是页内 Alert（页面立刻跳走，内联提示看不见）；
+      // 跳转不在这里手动做——signOut 后由 (staff) 布局的守卫统一送回登录页。
+      if (session !== null && session.user.id === updated.id) {
+        message.warning('已修改你自己的角色，请重新登录');
+        signOut();
+      }
     } catch (e) {
       setActionError(e instanceof ApiError ? e.message : '修改角色失败，请稍后重试');
     } finally {
@@ -134,7 +136,6 @@ function UsersTable() {
   async function handleUnbind(target: AdminUser, provider: IdentityProvider): Promise<void> {
     setActingId(target.id);
     setActionError(null);
-    setNotice(null);
     try {
       await api.unbindUserIdentity(target.id, provider);
       await loadUsers();
@@ -244,9 +245,6 @@ function UsersTable() {
 
           {loadError !== null && <Alert type="error" title={loadError} showIcon />}
           {actionError !== null && <Alert type="error" title={actionError} showIcon />}
-          {notice !== null && (
-            <Alert type="info" title={notice} showIcon closable onClose={() => setNotice(null)} />
-          )}
 
           <Table<AdminUser>
             rowKey="id"
