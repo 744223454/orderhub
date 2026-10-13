@@ -2,9 +2,10 @@
 
 import { Space } from 'antd';
 
-import { ChangePasswordCard } from '@/components/change-password-card';
 import { PageContainer } from '@/components/page-container';
-import { WecomBindCard } from '@/components/wecom-bind-card';
+
+import { ChangePasswordCard } from './_components/change-password-card';
+import { WecomBindCard } from './_components/wecom-bind-card';
 
 /**
  * 账号设置页。

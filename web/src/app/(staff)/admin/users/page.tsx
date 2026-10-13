@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import type { TableProps } from 'antd';
 import {
   Alert,
   App,
@@ -14,16 +15,16 @@ import {
   Tag,
   Typography,
 } from 'antd';
-import type { TableProps } from 'antd';
 
 import { AuthGuard } from '@/components/auth-guard';
 import { PageContainer } from '@/components/page-container';
-import { UserCreateModal } from '@/components/user-create-modal';
 import { api, ApiError } from '@/lib/api';
 import { useSession } from '@/lib/auth';
 import { identityProviderLabel } from '@/lib/identity';
 import { ADMIN_ROLES, ASSIGNABLE_ROLES, ROLE_LABELS } from '@/lib/roles';
 import type { AdminUser, AdminUserPage, IdentityProvider, Role } from '@/lib/types';
+
+import { UserCreateModal } from './_components/user-create-modal';
 
 /** 每页条数。后端上限是 100，这里固定一个对表格友好的值。 */
 const PAGE_SIZE = 20;
@@ -117,7 +118,7 @@ function UsersTable() {
       // 用全局 message 而不是页内 Alert（页面立刻跳走，内联提示看不见）；
       // 跳转不在这里手动做——signOut 后由 (staff) 布局的守卫统一送回登录页。
       if (session !== null && session.user.id === updated.id) {
-        message.warning('已修改你自己的角色，请重新登录');
+        await message.warning('已修改你自己的角色，请重新登录');
         signOut();
       }
     } catch (e) {

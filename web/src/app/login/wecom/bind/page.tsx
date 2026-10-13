@@ -3,7 +3,7 @@
 import { Suspense } from 'react';
 import { Spin } from 'antd';
 
-import { CallbackShell, WecomCallback } from '@/components/wecom-callback';
+import { CallbackShell, WecomCallback } from '../_components/wecom-callback';
 
 /**
  * 企业微信绑定回调页。
