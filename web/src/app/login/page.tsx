@@ -5,8 +5,9 @@ import { Alert, Button, Card, Divider, Form, Input, Typography } from 'antd';
 import type { LoginRequest } from '@/lib/types';
 import { api, ApiError } from '@/lib/api';
 import { useSession } from '@/lib/auth';
-import { homePathFor } from '@/lib/roles';
 import { useRouter } from 'next/navigation';
+import { GuestGuard } from '@/components/guest-guard';
+import { readLoginFrom, resolvePostLoginPath, saveLoginFrom } from '@/lib/redirect';
 
 /**
  * 登录页。
@@ -55,7 +56,7 @@ export default function LoginPage() {
     try {
       const { token, user } = await api.login(values);
       signIn(token, user);
-      router.replace(homePathFor(user.role));
+      router.replace(resolvePostLoginPath(readLoginFrom(), user.role));
     } catch (e) {
       setError(e instanceof ApiError ? e.message : '登录失败，请稍后重试');
     } finally {
@@ -77,7 +78,11 @@ export default function LoginPage() {
     setError(null);
     setWecomStarting(true);
     try {
+      const from = readLoginFrom();
       const { url } = await api.wecomAuthorize('login');
+      if (from) {
+        saveLoginFrom(from);
+      }
       window.location.href = url;
     } catch (e) {
       setError(e instanceof ApiError ? e.message : '企业微信登录发起失败，请稍后重试');
@@ -86,69 +91,71 @@ export default function LoginPage() {
   }
 
   return (
-    <main
-      style={{
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 24,
-        background: '#f5f5f5',
-      }}
-    >
-      <Card style={{ width: '100%', maxWidth: 400 }}>
-        <Typography.Title level={3} style={{ marginTop: 0, marginBottom: 4 }}>
-          登录
-        </Typography.Title>
-        <Typography.Paragraph type="secondary" style={{ marginBottom: 24 }}>
-          多角色订单系统
-        </Typography.Paragraph>
+    <GuestGuard>
+      <main
+        style={{
+          minHeight: '100vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: 24,
+          background: '#f5f5f5',
+        }}
+      >
+        <Card style={{ width: '100%', maxWidth: 400 }}>
+          <Typography.Title level={3} style={{ marginTop: 0, marginBottom: 4 }}>
+            登录
+          </Typography.Title>
+          <Typography.Paragraph type="secondary" style={{ marginBottom: 24 }}>
+            多角色订单系统
+          </Typography.Paragraph>
 
-        {error !== null && (
-          <Alert type="error" title={error} showIcon style={{ marginBottom: 16 }} />
-        )}
+          {error !== null && (
+            <Alert type="error" title={error} showIcon style={{ marginBottom: 16 }} />
+          )}
 
-        <Form<LoginRequest> layout="vertical" requiredMark={false} onFinish={handleFinish}>
-          <Form.Item
-            label="用户名"
-            name="username"
-            rules={[{ required: true, message: '请输入用户名' }]}
+          <Form<LoginRequest> layout="vertical" requiredMark={false} onFinish={handleFinish}>
+            <Form.Item
+              label="用户名"
+              name="username"
+              rules={[{ required: true, message: '请输入用户名' }]}
+            >
+              <Input placeholder="请输入用户名" autoComplete="username" />
+            </Form.Item>
+
+            <Form.Item
+              label="密码"
+              name="password"
+              rules={[{ required: true, message: '请输入密码' }]}
+            >
+              <Input.Password placeholder="请输入密码" autoComplete="current-password" />
+            </Form.Item>
+
+            <Form.Item style={{ marginBottom: 0 }}>
+              <Button type="primary" htmlType="submit" block loading={submitting}>
+                登录
+              </Button>
+            </Form.Item>
+          </Form>
+
+          <Divider plain style={{ margin: '20px 0', fontSize: 12 }}>
+            或
+          </Divider>
+
+          <Button block loading={wecomStarting} onClick={() => void handleWecomLogin()}>
+            企业微信登录
+          </Button>
+
+          <Typography.Paragraph
+            type="secondary"
+            style={{ marginTop: 16, marginBottom: 0, fontSize: 12 }}
           >
-            <Input placeholder="请输入用户名" autoComplete="username" />
-          </Form.Item>
-
-          <Form.Item
-            label="密码"
-            name="password"
-            rules={[{ required: true, message: '请输入密码' }]}
-          >
-            <Input.Password placeholder="请输入密码" autoComplete="current-password" />
-          </Form.Item>
-
-          <Form.Item style={{ marginBottom: 0 }}>
-            <Button type="primary" htmlType="submit" block loading={submitting}>
-              登录
-            </Button>
-          </Form.Item>
-        </Form>
-
-        <Divider plain style={{ margin: '20px 0', fontSize: 12 }}>
-          或
-        </Divider>
-
-        <Button block loading={wecomStarting} onClick={() => void handleWecomLogin()}>
-          企业微信登录
-        </Button>
-
-        <Typography.Paragraph
-          type="secondary"
-          style={{ marginTop: 16, marginBottom: 0, fontSize: 12 }}
-        >
-          本地开发账号：admin / admin（角色 admin）
-          <br />
-          企业微信登录需从 http://dev.orderhub.local:3000 进入（企微只认配置好的授权回调域）
-        </Typography.Paragraph>
-      </Card>
-    </main>
+            本地开发账号：admin / admin（角色 admin）
+            <br />
+            企业微信登录需从 http://dev.orderhub.local:3000 进入（企微只认配置好的授权回调域）
+          </Typography.Paragraph>
+        </Card>
+      </main>
+    </GuestGuard>
   );
 }
