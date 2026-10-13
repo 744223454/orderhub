@@ -18,9 +18,9 @@ import { Alert, Button, Card, Spin, Typography } from 'antd';
 
 import { api, ApiError } from '@/lib/api';
 import { useSession } from '@/lib/auth';
-import { homePathFor } from '@/lib/roles';
 import { readToken } from '@/lib/storage';
 import type { WecomIntent } from '@/lib/types';
+import { LOGIN_PATH, resolvePostLoginPath, takeLoginFrom } from '@/lib/redirect';
 
 export interface WecomCallbackProps {
   /** 授权用途：login 换票登录，bind 绑定到当前账号。 */
@@ -75,7 +75,7 @@ export function WecomCallback({ mode }: WecomCallbackProps) {
   const cancelled = code === null || state === null;
 
   const isBind = mode === 'bind';
-  const backPath = isBind ? '/orders' : '/login';
+  const backPath = isBind ? '/settings' : LOGIN_PATH;
 
   useEffect(() => {
     if (startedRef.current) return;
@@ -102,7 +102,7 @@ export function WecomCallback({ mode }: WecomCallbackProps) {
         // 只写存储会让「UI 说已登录、请求也带上了 token」两处状态对不上，
         // 症状是人刚登录就被弹回登录页。
         signIn(token, user);
-        router.replace(homePathFor(user.role));
+        router.replace(resolvePostLoginPath(takeLoginFrom(), user.role));
       } catch (e) {
         setError(e instanceof ApiError ? e.message : '操作失败，请稍后重试');
       }
@@ -144,7 +144,7 @@ export function WecomCallback({ mode }: WecomCallbackProps) {
         {/* 用 Button 的 href 而不是外包一层 Link：后者会渲染出 <a><button>，
             嵌套可聚焦元素，点击行为与无障碍语义都会出问题。 */}
         <Button type="link" href={backPath} style={{ padding: 0 }}>
-          {isBind ? '返回我的订单' : '返回登录页'}
+          {isBind ? '返回账号设置' : '返回登录页'}
         </Button>
       </div>
     </CallbackShell>

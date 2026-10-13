@@ -1,16 +1,41 @@
-import { redirect } from 'next/navigation';
+'use client';
+
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+
+import { useSession } from '@/lib/auth';
+import { LOGIN_PATH } from '@/lib/redirect';
+import { homePathFor } from '@/lib/roles';
+import { AppSkeleton } from '@/components/app-skeleton';
 
 /**
- * 根路由。
+ * 根路由：按会话「客户端分流」。
  *
- * 这里刻意什么都不渲染，直接重定向到 /orders：
- * 服务端读不到 localStorage，也就无法在这一层判断登录态，
- * 交给 (user)/layout.tsx 的守卫决定是留下还是转去 /login。
- * 这样"按角色分流"的逻辑只存在于守卫与登录页两处，不会散落各处。
+ * 为什么不能像原来那样在服务端写死 redirect('/orders')：登录态在 localStorage，
+ * 服务端读不到——staff 从根路径进来会先落 /orders、再被守卫弹去 /admin/orders，
+ * 白跳一次；未登录用户同样要多绕一道。分流只能在浏览器里做：
+ * 未登录去 /login，已登录去自己角色的首页（homePathFor）。
  *
- * 原先那个 antd 自检按钮页已完成使命，删掉了——
- * 登录页本身就是更好的自检：表单能渲染、能提交、能报错，说明整条链路是通的。
+ * 刻意不带 from：根路径自己当 from 没有意义（登录后回 '/' 又要再分流一次），
+ * 直接去 /login，让登录成功后的落点由 resolvePostLoginPath 统一决定。
+ *
+ * 本页面永远只渲染加载骨架——分流完就走，没有可见内容。
  */
 export default function RootPage() {
-  redirect('/orders');
+  const { session, hydrated } = useSession();
+  const router = useRouter();
+
+  // 渲染体只做纯计算；跳转是副作用，放进 effect（原因见 auth-guard.tsx 顶部注释）。
+  let directTo: string | null = null;
+  if (hydrated) {
+    directTo = session === null ? LOGIN_PATH : homePathFor(session.user.role);
+  }
+
+  useEffect(() => {
+    if (directTo !== null) {
+      router.replace(directTo);
+    }
+  }, [directTo, router]);
+
+  return <AppSkeleton />;
 }
