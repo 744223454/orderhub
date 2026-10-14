@@ -55,10 +55,25 @@ export interface LoginRequest {
   password: string;
 }
 
-/** 登录成功响应，对应 POST /api/login 的返回。 */
+/** 登录成功响应，对应 POST /api/login 与 POST /api/auth/wecom/login 的返回。 */
 export interface LoginResponse {
   token: string;
+  /**
+   * 刷新令牌（长寿命的不透明串）。访问令牌过期后凭它静默换取新令牌对；
+   * 与密码同级敏感，只在存储层与刷新流程里使用，不进 React 状态。
+   */
+  refresh_token: string;
   user: User;
+}
+
+/**
+ * 刷新成功响应，对应 POST /api/refresh。
+ *
+ * 令牌对全套换新：旧 refresh 已在服务端作废，必须整体替换保存。
+ */
+export interface RefreshResponse {
+  token: string;
+  refresh_token: string;
 }
 
 /** 当前登录用户，对应 GET /api/me 的返回。 */

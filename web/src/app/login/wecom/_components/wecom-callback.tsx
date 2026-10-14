@@ -97,11 +97,11 @@ export function WecomCallback({ mode }: WecomCallbackProps) {
           return;
         }
 
-        const { token, user } = await api.wecomLogin({ code, state });
+        const { token, refresh_token, user } = await api.wecomLogin({ code, state });
         // 必须走 signIn 而不是裸写 localStorage：守卫读的是 Context，
         // 只写存储会让「UI 说已登录、请求也带上了 token」两处状态对不上，
         // 症状是人刚登录就被弹回登录页。
-        signIn(token, user);
+        signIn(token, refresh_token, user);
         router.replace(resolvePostLoginPath(takeLoginFrom(), user.role));
       } catch (e) {
         setError(e instanceof ApiError ? e.message : '操作失败，请稍后重试');

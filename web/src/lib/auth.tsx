@@ -14,8 +14,16 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 
-import { clearSession, readToken, readUser, saveSession } from './storage';
+import {
+  clearSession,
+  readRefreshToken,
+  readToken,
+  readUser,
+  saveSession,
+  SESSION_EXPIRED_EVENT,
+} from './storage';
 import type { User } from './types';
+import { api } from './api';
 
 /** 一份已登录的会话。 */
 export interface Session {
@@ -33,8 +41,8 @@ export interface SessionValue {
    * 守卫必须先等它变 true 再判断跳转，否则会在刚进页面时误判成未登录。
    */
   hydrated: boolean;
-  /** 登录成功后写入会话。 */
-  signIn(token: string, user: User): void;
+  /** 登录成功后写入会话（同时落库刷新令牌，供无感刷新使用）。 */
+  signIn(token: string, refreshToken: string, user: User): void;
   /** 退出登录，清空会话。 */
   signOut(): void;
 }
@@ -86,18 +94,34 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setHydrated(true);
   }, []);
 
+  // 监听会话失效广播（refresh 令牌被拒时由 session-refresh 派发）：同步清掉 React 状态，
+  // 守卫随即把用户送往 /login（带 from 回跳），无需整页刷新。
+  useEffect(() => {
+    const onExpired = () => setSession(null);
+    window.addEventListener(SESSION_EXPIRED_EVENT, onExpired);
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired);
+  }, []);
+
   // useMemo 固定 value 的引用，否则每次渲染都生成新对象，所有消费者白白重渲染。
   // signIn / signOut 不读取 session，所以只依赖 [session, hydrated] 也是安全的。
   const value = useMemo<SessionValue>(
     () => ({
       session,
       hydrated,
-      signIn(token: string, user: User) {
+      signIn(token: string, refreshToken: string, user: User) {
         // 存储与状态必须成对更新，顺序无所谓，但不能只写一半。
-        saveSession(token, user);
+        // refresh 只落存储、不进 React 状态：请求层与刷新流程都直接读存储，
+        // 状态里多一份副本只会多一处需要同步。
+        saveSession(token, refreshToken, user);
         setSession({ token, user });
       },
       signOut() {
+        // 先发起服务端撤销（fire-and-forget：不 await、失败静默——本地登出马上完成，
+        // 撤销失败只留一枚自然过期的 refresh，不该阻塞）；读 refresh 须在 clearSession 之前。
+        const refreshToken = readRefreshToken();
+        if (refreshToken) {
+          api.logout(refreshToken).catch(() => {});
+        }
         clearSession();
         setSession(null);
       },

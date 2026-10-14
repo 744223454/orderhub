@@ -1,12 +1,18 @@
 /**
- * 会话（token + 用户信息）的浏览器本地存取。
+ * 会话（令牌对 + 用户信息）的浏览器本地存取。
  *
  * 单独拆成一个模块的原因是依赖方向：
  * `api.ts` 要读 token 塞进 Authorization 头，`auth.tsx` 要写 token，
- * 两者都依赖本模块，从而避免 `api.ts` ↔ `auth.tsx` 互相 import 形成循环。
+ * `session-refresh.ts` 要读写刷新令牌——多者都依赖本模块，
+ * 从而避免 `api.ts` ↔ `auth.tsx` 互相 import 形成循环。
  *
- * 取舍说明：这里用 localStorage，读写简单、调试直观，代价是 token 可被
- * 页面内任意脚本读取（XSS 风险）。更安全的做法是把 token 换成 httpOnly Cookie，
+ * 自练习六批次 2 起保存「令牌对」，两者分开存放、分开刷新：
+ * - `orderhub.token`：access 令牌，短寿命，随每个请求发给后端；
+ * - `orderhub.refresh`：refresh 令牌，长寿命的不透明串，只在刷新接口里用。
+ * 刷新只替换令牌对，不动用户信息（名字、角色）那一份。
+ *
+ * 取舍说明：这里用 localStorage，读写简单、调试直观，代价是令牌可被
+ * 页面内任意脚本读取（XSS 风险）。更安全的做法是把令牌换成 httpOnly Cookie，
  * 但那需要后端改成下发 Cookie，或在前端加一层 Route Handler 做代理转发。
  * 先把功能跑通，这条升级路径记在心上即可。
  *
@@ -16,11 +22,24 @@
 
 import type { User } from './types';
 
-/** token 在 localStorage 中的键名。 */
+/** access 令牌在 localStorage 中的键名。 */
 const TOKEN_KEY = 'orderhub.token';
+
+/** refresh 令牌在 localStorage 中的键名。 */
+const REFRESH_TOKEN_KEY = 'orderhub.refresh';
 
 /** 用户信息在 localStorage 中的键名。 */
 const USER_KEY = 'orderhub.user';
+
+/**
+ * 会话失效的广播事件名。
+ *
+ * 刷新令牌被服务端拒绝（过期 / 已撤销 / 检测到重放）时会话彻底失效：
+ * 存储层清空本地数据后派发该事件，由 React 侧（auth.tsx）同步状态，
+ * 守卫再把用户送回登录页。用事件而非回调，是为了让纯逻辑模块
+ * （session-refresh.ts）不依赖 React。
+ */
+export const SESSION_EXPIRED_EVENT = 'orderhub:session-expired';
 
 /**
  * 读取访问令牌。未登录或处于服务端时返回 null。
@@ -30,6 +49,16 @@ export function readToken(): string | null {
     return null;
   }
   return window.localStorage.getItem(TOKEN_KEY);
+}
+
+/**
+ * 读取刷新令牌。未登录或处于服务端时返回 null。
+ */
+export function readRefreshToken(): string | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  return window.localStorage.getItem(REFRESH_TOKEN_KEY);
 }
 
 /**
@@ -55,23 +84,49 @@ export function readUser(): User | null {
 }
 
 /**
- * 写入会话。登录成功后调用。
+ * 写入完整会话：令牌对 + 用户信息。登录成功后调用。
  */
-export function saveSession(token: string, user: User): void {
+export function saveSession(token: string, refreshToken: string, user: User): void {
   if (typeof window === 'undefined') {
     return;
   }
   window.localStorage.setItem(TOKEN_KEY, token);
+  window.localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
   window.localStorage.setItem(USER_KEY, JSON.stringify(user));
 }
 
 /**
- * 清除会话。退出登录、或收到 401 时调用。
+ * 只替换令牌对，用户信息保持不动。无感刷新成功后调用。
+ *
+ * 刷新是轮转式的：旧 refresh 已被服务端作废，必须整体替换——
+ * 只更新 access 而漏掉 refresh，下一次刷新递上旧串会被判重放、连坐撤销。
+ */
+export function saveTokens(token: string, refreshToken: string): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  window.localStorage.setItem(TOKEN_KEY, token);
+  window.localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+}
+
+/**
+ * 清除会话。退出登录、或刷新令牌被拒绝时调用。
  */
 export function clearSession(): void {
   if (typeof window === 'undefined') {
     return;
   }
   window.localStorage.removeItem(TOKEN_KEY);
+  window.localStorage.removeItem(REFRESH_TOKEN_KEY);
   window.localStorage.removeItem(USER_KEY);
+}
+
+/**
+ * 派发「会话已失效」事件。与 clearSession 搭配使用；服务端渲染时静默忽略。
+ */
+export function notifySessionExpired(): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
 }

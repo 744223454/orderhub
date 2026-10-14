@@ -99,6 +99,19 @@ export const api = {
     return request<void>('/api/register', { method: 'POST', body: JSON.stringify(body) });
   },
 
+  /**
+   * 登出：撤销服务端的刷新令牌。
+   *
+   * 接口挂公开组、凭据是 refresh 自身（access 过期也照样能登出），且幂等——
+   * 令牌无效 / 已撤销都返回成功，调用方无需区分。
+   */
+  logout(refreshToken: string): Promise<void> {
+    return request<void>('/api/logout', {
+      method: 'POST',
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    });
+  },
+
   /** 获取当前登录用户，可用来校验本地 token 是否仍然有效。 */
   me(): Promise<MeResponse> {
     return request<MeResponse>('/api/me');

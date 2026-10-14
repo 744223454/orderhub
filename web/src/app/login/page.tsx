@@ -54,8 +54,8 @@ export default function LoginPage() {
     setError(null);
     setSubmitting(true);
     try {
-      const { token, user } = await api.login(values);
-      signIn(token, user);
+      const { token, refresh_token, user } = await api.login(values);
+      signIn(token, refresh_token, user);
       router.replace(resolvePostLoginPath(readLoginFrom(), user.role));
     } catch (e) {
       setError(e instanceof ApiError ? e.message : '登录失败，请稍后重试');
