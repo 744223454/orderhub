@@ -118,7 +118,7 @@ function UsersTable() {
       // 用全局 message 而不是页内 Alert（页面立刻跳走，内联提示看不见）；
       // 跳转不在这里手动做——signOut 后由 (staff) 布局的守卫统一送回登录页。
       if (session !== null && session.user.id === updated.id) {
-        await message.warning('已修改你自己的角色，请重新登录');
+        void message.warning('已修改你自己的角色，请重新登录');
         signOut();
       }
     } catch (e) {

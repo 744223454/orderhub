@@ -71,7 +71,9 @@ export function AuthGuard({ allow, children }: AuthGuardProps) {
   // 跳转与提示是副作用，放到渲染提交之后再执行，保持渲染体纯净。
   useEffect(() => {
     if (forbidden) {
-      message.warning('无权访问该页面，已为你返回首页');
+      // message 的返回值是 thenable；显式 void 表示有意忽略——
+      // 提示与跳转并行：跳转要即时，message 挂在根布局的 <App> 上、切页后仍会显示完。
+      void message.warning('无权访问该页面，已为你返回首页');
     }
     if (redirectTo !== null) {
       router.replace(redirectTo);
