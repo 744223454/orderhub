@@ -26,6 +26,7 @@ import type {
   WecomCallbackRequest,
   WecomIntent,
 } from './types';
+import { refreshAccessToken } from './session-refresh';
 
 /**
  * 后端返回非 2xx 时抛出的错误。
@@ -44,6 +45,14 @@ export class ApiError extends Error {
 }
 
 /**
+ * 不做 401 刷新重试的「凭据类」路径。
+ *
+ * 它们的 401 是业务语义（密码错误 / 令牌已撤销等），不是「当前 access 过期」；
+ * 对它们刷新重试会形成循环或误轮转。匹配前会先剥掉查询串（见 request 实现）。
+ */
+const REFRESH_EXEMPT_PATHS = ['/api/login', '/api/register', '/api/refresh', '/api/logout'];
+
+/**
  * 调用后端接口并解析 JSON 响应，失败时抛出 ApiError。
  *
  * 三条约定：
@@ -52,21 +61,39 @@ export class ApiError extends Error {
  *    解析不出（网络中断、非 JSON 响应）则回落到「请求失败」。
  *    绝不抛空 message —— 页面上会渲染出无内容的红色横幅。
  * 3. **401 不在这里自动跳登录**，由调用方（守卫、页面）判断 `err.status === 401` 后决定。
- *    放在这里自动跳会很危险：登录接口本身在账号密码错误时也返回 401，
- *    会造成刷新循环。
+ *    这里只对「带过令牌、且非凭据类路径」的 401 做一次无感刷新重试（见 request 内实现）；
+ *    自动跳转很危险——登录接口等凭据类路径本身就返回 401，会被卷进刷新循环。
  *
  * 另外留意：Next.js 在服务端组件里会对 fetch 做缓存，而本函数是给浏览器用的。
  * 如果以后要在服务端组件里取数，用 `API_BASE_URL` 拼绝对地址另写一份，
  * 相对路径在 Node 环境里会直接报 "Failed to parse URL"。
  */
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const headers = new Headers(init?.headers);
-  headers.set('Content-Type', 'application/json');
   const token = readToken();
-  if (token) {
-    headers.set('Authorization', `Bearer ${token}`);
+  let response = await send(path, init, token);
+
+  async function send(path: string, init: RequestInit | undefined, token: string | null) {
+    const headers = new Headers(init?.headers);
+    headers.set('Content-Type', 'application/json');
+    if (token) {
+      headers.set('Authorization', `Bearer ${token}`);
+    }
+    return fetch(path, { ...init, headers });
   }
-  const response = await fetch(path, { ...init, headers });
+
+  // 401 拦截：三条件同时满足才做无感刷新重试——响应 401、带过令牌、非凭据类路径。
+  // 重试只做一次：重试结果直接流入下方统一处理，不会再次刷新；
+  // 刷新失败统一转成 401（会话清空与广播已在 session-refresh 内完成）。
+  const purePath = path.split('?')[0];
+  if (response.status === 401 && token !== null && !REFRESH_EXEMPT_PATHS.includes(purePath)) {
+    let newToken: string;
+    try {
+      newToken = await refreshAccessToken();
+    } catch {
+      throw new ApiError(401, '登录已过期，请重新登录');
+    }
+    response = await send(path, init, newToken);
+  }
 
   if (!response.ok) {
     let message = '请求失败';
@@ -97,6 +124,19 @@ export const api = {
   /** 注册。公开接口，只能注册为普通用户。 */
   register(body: LoginRequest): Promise<void> {
     return request<void>('/api/register', { method: 'POST', body: JSON.stringify(body) });
+  },
+
+  /**
+   * 登出：撤销服务端的刷新令牌。
+   *
+   * 接口挂公开组、凭据是 refresh 自身（access 过期也照样能登出），且幂等——
+   * 令牌无效 / 已撤销都返回成功，调用方无需区分。
+   */
+  logout(refreshToken: string): Promise<void> {
+    return request<void>('/api/logout', {
+      method: 'POST',
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    });
   },
 
   /** 获取当前登录用户，可用来校验本地 token 是否仍然有效。 */
