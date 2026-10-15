@@ -80,7 +80,12 @@ export function ChangePasswordCard() {
       )}
       {error !== null && <Alert type="error" title={error} showIcon style={{ marginBottom: 16 }} />}
 
-      <Form form={form} layout="vertical" onFinish={(values) => void handleSubmit(values)}>
+      <Form
+        form={form}
+        layout="vertical"
+        requiredMark={false}
+        onFinish={(values) => void handleSubmit(values)}
+      >
         {hasPassword === true && (
           <Form.Item
             name="old_password"

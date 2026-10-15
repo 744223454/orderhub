@@ -1,8 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
 import type { TableProps } from 'antd';
-import { Alert, Button, Card, Space, Table, Typography } from 'antd';
+import { Alert, Button, Card, Popconfirm, Space, Table, Typography } from 'antd';
 
 import { OrderStatusTag } from '@/components/order-status-tag';
 import { PageContainer } from '@/components/page-container';
@@ -28,16 +28,34 @@ const ACTIONS_BY_STATUS: Record<OrderStatus, AdminAction[]> = {
   refunded: [],
 };
 
+/** 需要二次确认的操作附带的弹层文案配置。 */
+interface ConfirmSpec {
+  title: string;
+  description: string;
+  okText: string;
+}
+
 /**
  * 操作 → 展示文案与执行入口。
  *
  * run 集中在这里，操作列与 handleAction 就都不用写 switch：将来加一个操作，
  * 本表加一条、再挂到 ACTIONS_BY_STATUS 对应状态上即可。
  */
-const ACTION_META: Record<AdminAction, { label: string; run: (id: number) => Promise<Order> }> = {
+const ACTION_META: Record<
+  AdminAction,
+  { label: string; run: (id: number) => Promise<Order>; confirm?: ConfirmSpec }
+> = {
   ship: { label: '发货', run: (id) => api.shipOrder(id) },
   complete: { label: '完成', run: (id) => api.completeOrder(id) },
-  refund: { label: '退款', run: (id) => api.refundOrder(id) },
+  refund: {
+    label: '退款',
+    run: (id) => api.refundOrder(id),
+    confirm: {
+      title: '确认退款？',
+      description: '退款后订单会变为「已退款」，且不可恢复。',
+      okText: '确认退款',
+    },
+  },
 };
 
 /**
@@ -177,19 +195,39 @@ export default function AdminOrdersPage() {
         }
         return (
           <Space size={8}>
-            {actions.map((action) => (
-              <Button
-                key={action}
-                type="link"
-                size="small"
-                style={{ padding: 0 }}
-                loading={actingId === order.id}
-                disabled={actingId !== null && actingId !== order.id}
-                onClick={() => void handleAction(order.id, action)}
-              >
-                {ACTION_META[action].label}
-              </Button>
-            ))}
+            {actions.map((action) => {
+              const meta = ACTION_META[action];
+              const run = () => void handleAction(order.id, action);
+              const button = (
+                <Button
+                  type="link"
+                  size="small"
+                  style={{ padding: 0 }}
+                  loading={actingId === order.id}
+                  disabled={actingId !== null && actingId !== order.id}
+                  onClick={meta.confirm === undefined ? run : undefined}
+                >
+                  {meta.label}
+                </Button>
+              );
+              return (
+                <Fragment key={action}>
+                  {meta.confirm === undefined ? (
+                    button
+                  ) : (
+                    <Popconfirm
+                      title={meta.confirm.title}
+                      description={meta.confirm.description}
+                      okText={meta.confirm.okText}
+                      okButtonProps={{ danger: true }}
+                      onConfirm={() => void handleAction(order.id, action)}
+                    >
+                      {button}
+                    </Popconfirm>
+                  )}
+                </Fragment>
+              );
+            })}
           </Space>
         );
       },

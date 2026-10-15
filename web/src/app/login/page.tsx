@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Alert, Button, Card, Divider, Form, Input, Typography } from 'antd';
+import { Alert, Button, Card, Divider, Form, Input, theme, Typography } from 'antd';
 import type { LoginRequest } from '@/lib/types';
 import { api, ApiError } from '@/lib/api';
 import { useSession } from '@/lib/auth';
@@ -31,6 +31,7 @@ export default function LoginPage() {
   // `Invalid hook call`（实测细节见下方 handleFinish 的注释）。
   const router = useRouter();
   const { signIn } = useSession();
+  const { token } = theme.useToken();
 
   /**
    * 表单校验通过后触发。
@@ -99,7 +100,7 @@ export default function LoginPage() {
           alignItems: 'center',
           justifyContent: 'center',
           padding: 24,
-          background: '#f5f5f5',
+          background: token.colorBgLayout,
         }}
       >
         <Card style={{ width: '100%', maxWidth: 400 }}>
@@ -146,14 +147,18 @@ export default function LoginPage() {
             企业微信登录
           </Button>
 
-          <Typography.Paragraph
-            type="secondary"
-            style={{ marginTop: 16, marginBottom: 0, fontSize: 12 }}
-          >
-            本地开发账号：admin / admin（角色 admin）
-            <br />
-            企业微信登录需从 http://dev.orderhub.local:3000 进入（企微只认配置好的授权回调域）
-          </Typography.Paragraph>
+          {/* 开发信息只在开发环境显示：process.env.NODE_ENV 会被 Next 在构建时替换为
+              字面量，production 构建下整个分支被静态消除，不会进入生产产物。 */}
+          {process.env.NODE_ENV === 'development' && (
+            <Typography.Paragraph
+              type="secondary"
+              style={{ marginTop: 16, marginBottom: 0, fontSize: 12 }}
+            >
+              本地开发账号：admin / admin（角色 admin）
+              <br />
+              企业微信登录需从 http://dev.orderhub.local:3000 进入（企微只认配置好的授权回调域）
+            </Typography.Paragraph>
+          )}
         </Card>
       </main>
     </GuestGuard>

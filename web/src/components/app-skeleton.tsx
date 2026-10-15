@@ -11,7 +11,7 @@
  * - 形状通用：一条顶栏 + 内容区两块卡片形占位，适配本项目「顶栏 + 卡片」的页面结构。
  */
 
-import { Card, Skeleton } from 'antd';
+import { Card, Skeleton, theme } from 'antd';
 
 /**
  * 设计备注：顶栏刻意用普通 div + 全内联样式，而不是 <Layout.Header>——
@@ -21,8 +21,9 @@ import { Card, Skeleton } from 'antd';
  * 改回 <Layout.Header> 之前，先处理好这两个坑。
  */
 export function AppSkeleton() {
+  const { token } = theme.useToken();
   return (
-    <div style={{ minHeight: '100vh', background: '#f5f5f5' }}>
+    <div style={{ minHeight: '100vh', background: token.colorBgLayout }}>
       <div
         style={{
           height: 64,
@@ -30,8 +31,8 @@ export function AppSkeleton() {
           alignItems: 'center',
           gap: 24,
           paddingInline: 24,
-          background: '#fff',
-          borderBottom: '1px solid rgba(5, 5, 5, 0.06)',
+          background: token.colorBgContainer,
+          borderBottom: `1px solid ${token.colorSplit}`,
         }}
       >
         <Skeleton.Button active size="small"></Skeleton.Button>

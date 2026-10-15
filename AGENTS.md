@@ -124,6 +124,17 @@
 - 自定义样式按此层次走：`globals.css` 全局 → `theme.useToken()` 取 token →
   antd 的 `classNames` / `styles` → 最后才 CSS Modules（Next.js 原生支持，需要时再开）。
 
+### 交互约定
+
+**危险操作必须二次确认**（2026-10-15 定，参照 `admin/users` 解绑与 `admin/orders` 退款两处实现）：
+
+- **行内操作、后果单一明确** → `Popconfirm`：问句 `title`（「确认退款？」）、说清后果的
+  `description`、动词短语 `okText`（「确认退款」）、`okButtonProps={{ danger: true }}`。
+- **影响面大、需展开说明** → `Modal.confirm`（当前暂无实例，需要时按此归位）。
+- **正向流转不加确认**（发货、完成、支付）：靠按钮 `loading` 防连点，加确认反而拖节奏。
+- 实现硬约束：**执行入口唯一**——包在确认里的操作，按钮自身不挂 `onClick`，
+  执行只走 `onConfirm`（且只调既有执行函数，不复制逻辑）。
+
 ### 目录与归属
 
 **按引用范围决定新文件放哪**（2026-10-13 定），不要按「是组件还是工具」的直觉分类：

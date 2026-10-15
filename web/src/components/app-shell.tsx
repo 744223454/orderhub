@@ -13,7 +13,7 @@
  */
 
 import type { ReactNode } from 'react';
-import { Button, Layout, Typography } from 'antd';
+import { Button, Layout, theme, Typography } from 'antd';
 
 import { NavLink } from '@/components/nav-link';
 import { useSession } from '@/lib/auth';
@@ -26,6 +26,7 @@ export interface AppShellProps {
 
 export function AppShell({ children }: AppShellProps) {
   const { session, signOut } = useSession();
+  const { token } = theme.useToken();
 
   // 本组件只在守卫放行之后渲染，session 语义上必非空；
   // 但类型上仍是 Session | null，用三元把它收敛成可直接消费的形态。
@@ -39,8 +40,9 @@ export function AppShell({ children }: AppShellProps) {
           alignItems: 'center',
           gap: 24,
           paddingInline: 24,
-          background: '#fff',
-          borderBottom: '1px solid rgba(5, 5, 5, 0.06)',
+          // 取语义 token，不再写死色值：调主题时全站随 ConfigProvider 联动。
+          background: token.colorBgContainer,
+          borderBottom: `1px solid ${token.colorSplit}`,
         }}
       >
         <Typography.Text strong>多角色订单系统</Typography.Text>

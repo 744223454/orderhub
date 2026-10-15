@@ -14,7 +14,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Alert, Button, Card, Spin, Typography } from 'antd';
+import { Alert, Button, Card, Spin, theme, Typography } from 'antd';
 
 import { api, ApiError } from '@/lib/api';
 import { useSession } from '@/lib/auth';
@@ -29,6 +29,7 @@ export interface WecomCallbackProps {
 
 /** 回调相关页面统一的居中卡片容器，Suspense 的 fallback 也复用它。 */
 export function CallbackShell({ children }: { children: ReactNode }) {
+  const { token } = theme.useToken();
   return (
     <main
       style={{
@@ -37,7 +38,7 @@ export function CallbackShell({ children }: { children: ReactNode }) {
         alignItems: 'center',
         justifyContent: 'center',
         padding: 24,
-        background: '#f5f5f5',
+        background: token.colorBgLayout,
       }}
     >
       <Card style={{ width: '100%', maxWidth: 400 }}>{children}</Card>
