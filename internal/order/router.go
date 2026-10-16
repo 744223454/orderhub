@@ -13,6 +13,7 @@ func UserRoutes(rg *gin.RouterGroup, h *Handler) {
 // （需已通过 RequireRole 中间件，建议挂在 JWT 认证分组之下）。
 func StaffRoutes(rg *gin.RouterGroup, h *Handler) {
 	rg.GET("/admin/orders", h.ListAllOrders)
+	rg.GET("/admin/orders/stats", h.GetStats)
 	rg.POST("/admin/orders/:id/ship", h.ShipOrder)
 	rg.POST("/admin/orders/:id/complete", h.CompleteOrder)
 	rg.POST("/admin/orders/:id/refund", h.RefundOrder)
