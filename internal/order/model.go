@@ -59,7 +59,7 @@ type Order struct {
 	// Status 订单状态。
 	Status Status `gorm:"size:16;not null;index" json:"status"`
 	// CreatedAt 创建时间。
-	CreatedAt time.Time `json:"created_at"`
+	CreatedAt time.Time `gorm:"index" json:"created_at"`
 	// UpdatedAt 最后更新时间。
 	UpdatedAt time.Time `json:"updated_at"`
 }

@@ -4,9 +4,30 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"gorm.io/gorm"
 )
+
+// StatusAggregate 是按状态聚合的订单数与金额合计（仓库层查询结果）。
+type StatusAggregate struct {
+	// Status 订单状态。
+	Status Status
+	// Count 该状态的订单数。
+	Count int64
+	// Amount 该状态的金额合计（分）。
+	Amount int64
+}
+
+// DailyAggregate 是按天聚合的订单数与金额合计（仓库层查询结果）。
+type DailyAggregate struct {
+	// Day 日期，北京时间口径，格式 YYYY-MM-DD。
+	Day string
+	// Count 该天的订单数。
+	Count int64
+	// Amount 该天的金额合计（分）。
+	Amount int64
+}
 
 // Repo 提供订单数据的持久化访问能力。
 type Repo struct {
@@ -73,6 +94,41 @@ func (r *Repo) ListAll(ctx context.Context, offset, limit int) ([]Order, int64, 
 	}
 
 	return orders, total, nil
+}
+
+// CountByStatus 按订单状态分组，聚合各状态的订单数与金额合计（分）。
+// 只返回「有订单」的状态，缺失状态由调用方自行处置（如补齐为 0）。
+func (r *Repo) CountByStatus(ctx context.Context) ([]StatusAggregate, error) {
+	var aggregates []StatusAggregate
+	err := gorm.G[Order](r.db).
+		Select("status, COUNT(*) AS count, COALESCE(SUM(amount), 0) AS amount").
+		Group("status").
+		Scan(ctx, &aggregates)
+	if err != nil {
+		return nil, fmt.Errorf("按订单状态分组失败: %w", err)
+	}
+	return aggregates, nil
+}
+
+// DailyStats 统计 since（含）以来每天的订单数与金额合计（分）。
+//
+// 口径约定（实现时必须遵守）：
+//   - 按「北京时间」（Asia/Shanghai）切自然日，Day 格式 YYYY-MM-DD
+//     （与 service 层回推窗口所用的 FixedZone 时区同源，改动须同步）；
+//   - 只返回有订单的日期，缺口日期由调用方补零；
+//   - since 是绝对时刻（带时区），由服务层按北京时间当天零点回推计算。
+func (r *Repo) DailyStats(ctx context.Context, since time.Time) ([]DailyAggregate, error) {
+	var aggregates []DailyAggregate
+	err := gorm.G[Order](r.db).
+		Select("TO_CHAR(created_at AT TIME ZONE 'Asia/Shanghai', 'YYYY-MM-DD') AS day, COUNT(*) AS count, COALESCE(SUM(amount), 0) AS amount").
+		Where("created_at >= ?", since).
+		Group("day").
+		Order("day").
+		Scan(ctx, &aggregates)
+	if err != nil {
+		return nil, fmt.Errorf("统计按天订单失败: %w", err)
+	}
+	return aggregates, nil
 }
 
 // UpdateStatus 将订单状态从 from 流转为 to。

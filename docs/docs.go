@@ -62,6 +62,39 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/orders/stats": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "订单管理"
+                ],
+                "summary": "订单统计（全量汇总、按状态分组与近 14 天趋势，仅运营/管理员）",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_order.Stats"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/admin/orders/{id}/complete": {
             "post": {
                 "security": [
@@ -1246,6 +1279,23 @@ const docTemplate = `{
                 }
             }
         },
+        "internal_order.DailyStat": {
+            "type": "object",
+            "properties": {
+                "amount": {
+                    "description": "Amount 该天的金额合计（分）。",
+                    "type": "integer"
+                },
+                "count": {
+                    "description": "Count 该天的订单数。",
+                    "type": "integer"
+                },
+                "date": {
+                    "description": "Date 日期，北京时间口径，格式 YYYY-MM-DD。",
+                    "type": "string"
+                }
+            }
+        },
         "internal_order.Order": {
             "type": "object",
             "properties": {
@@ -1283,6 +1333,33 @@ const docTemplate = `{
                 }
             }
         },
+        "internal_order.Stats": {
+            "type": "object",
+            "properties": {
+                "by_status": {
+                    "description": "ByStatus 按状态分组的统计：五种状态定长全量返回，顺序固定为\npending → paid → shipped → completed → refunded（与常量的声明顺序一致），\n无订单的状态计数与金额为 0。",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_order.StatusStat"
+                    }
+                },
+                "daily": {
+                    "description": "Daily 近 statsDailyDays 天的逐日统计：北京时间自然日（含今天），\n连续定长返回、按日期升序（首条最早、末条为今天），无数据的日期补零。",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_order.DailyStat"
+                    }
+                },
+                "total_amount": {
+                    "description": "TotalAmount 全量金额合计（分）。",
+                    "type": "integer"
+                },
+                "total_orders": {
+                    "description": "TotalOrders 全量订单数。",
+                    "type": "integer"
+                }
+            }
+        },
         "internal_order.Status": {
             "type": "string",
             "enum": [
@@ -1299,6 +1376,27 @@ const docTemplate = `{
                 "StatusCompleted",
                 "StatusRefunded"
             ]
+        },
+        "internal_order.StatusStat": {
+            "type": "object",
+            "properties": {
+                "amount": {
+                    "description": "Amount 该状态的金额合计（分）。",
+                    "type": "integer"
+                },
+                "count": {
+                    "description": "Count 该状态的订单数。",
+                    "type": "integer"
+                },
+                "status": {
+                    "description": "Status 订单状态。",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/internal_order.Status"
+                        }
+                    ]
+                }
+            }
         },
         "internal_order.createOrderRequest": {
             "type": "object",

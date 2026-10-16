@@ -3,6 +3,7 @@ package order
 import (
 	"context"
 	"fmt"
+	"time"
 	"unicode/utf8"
 )
 
@@ -24,6 +25,10 @@ const (
 	maxOrderPageSize = 100
 )
 
+// statsDailyDays 是订单统计「按天趋势」的时间窗口：含今天在内的最近 N 个自然日。
+// 看板固定展示 14 天，暂不开放调用方自定义。
+const statsDailyDays = 14
+
 // OrderPage 是一页订单查询结果。
 type OrderPage struct {
 	// Orders 当前页的订单。
@@ -34,6 +39,41 @@ type OrderPage struct {
 	Page int
 	// PageSize 生效后的每页条数。
 	PageSize int
+}
+
+// StatusStat 是单个状态的聚合统计（统计接口输出）。
+type StatusStat struct {
+	// Status 订单状态。
+	Status Status `json:"status"`
+	// Count 该状态的订单数。
+	Count int64 `json:"count"`
+	// Amount 该状态的金额合计（分）。
+	Amount int64 `json:"amount"`
+}
+
+// DailyStat 是单日的聚合统计（统计接口输出）。
+type DailyStat struct {
+	// Date 日期，北京时间口径，格式 YYYY-MM-DD。
+	Date string `json:"date"`
+	// Count 该天的订单数。
+	Count int64 `json:"count"`
+	// Amount 该天的金额合计（分）。
+	Amount int64 `json:"amount"`
+}
+
+// Stats 是订单统计接口的完整结果，直接作为响应体使用。
+type Stats struct {
+	// TotalOrders 全量订单数。
+	TotalOrders int64 `json:"total_orders"`
+	// TotalAmount 全量金额合计（分）。
+	TotalAmount int64 `json:"total_amount"`
+	// ByStatus 按状态分组的统计：五种状态定长全量返回，顺序固定为
+	// pending → paid → shipped → completed → refunded（与常量的声明顺序一致），
+	// 无订单的状态计数与金额为 0。
+	ByStatus []StatusStat `json:"by_status"`
+	// Daily 近 statsDailyDays 天的逐日统计：北京时间自然日（含今天），
+	// 连续定长返回、按日期升序（首条最早、末条为今天），无数据的日期补零。
+	Daily []DailyStat `json:"daily"`
 }
 
 // Service 承载订单模块的业务逻辑。
@@ -116,6 +156,65 @@ func (s *Service) ListAllOrders(ctx context.Context, page, pageSize int) (*Order
 		Total:    total,
 		Page:     page,
 		PageSize: pageSize,
+	}, nil
+}
+
+// Stats 汇总订单统计：全量总数与金额、按状态分组、近 statsDailyDays 天逐日趋势。
+//
+// 补齐职责在本层：by_status 五种状态定长返回（缺的补 0）、daily 补齐连续日期
+// （缺的补零），让前端图表拿到的是可直接渲染的定长序列。
+// 总量可由按状态分组的结果汇总得到，无需额外查询。
+func (s *Service) Stats(ctx context.Context) (*Stats, error) {
+	// beijing 是统计口径的北京时间时区；仓库层 SQL 里的 'Asia/Shanghai'
+	// 是同一口径的另一份表达（中国无夏令时，两者恒等）——改动任一侧须同步。
+	beijing := time.FixedZone("CST", 8*3600)
+	now := time.Now().In(beijing)
+	var (
+		totalOrders int64
+		totalAmount int64
+		byStatus    []StatusStat
+		dailyStats  []DailyStat
+	)
+
+	aggregates, err := s.repo.CountByStatus(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	aggByStatus := make(map[Status]StatusAggregate, len(aggregates))
+	for _, a := range aggregates {
+		aggByStatus[a.Status] = a
+	}
+
+	for _, st := range []Status{StatusPending, StatusPaid, StatusShipped, StatusCompleted, StatusRefunded} {
+		a := aggByStatus[st]
+		totalOrders += a.Count
+		totalAmount += a.Amount
+		byStatus = append(byStatus, StatusStat{Status: st, Count: a.Count, Amount: a.Amount})
+	}
+
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, beijing)
+	since := today.AddDate(0, 0, -(statsDailyDays - 1))
+	dailyAggr, err := s.repo.DailyStats(ctx, since)
+	if err != nil {
+		return nil, err
+	}
+
+	dailyMap := make(map[string]DailyAggregate, len(dailyAggr))
+	for _, d := range dailyAggr {
+		dailyMap[d.Day] = d
+	}
+	for i := range statsDailyDays {
+		day := since.AddDate(0, 0, i).Format("2006-01-02")
+		d := dailyMap[day]
+		dailyStats = append(dailyStats, DailyStat{Date: day, Count: d.Count, Amount: d.Amount})
+	}
+
+	return &Stats{
+		TotalOrders: totalOrders,
+		TotalAmount: totalAmount,
+		ByStatus:    byStatus,
+		Daily:       dailyStats,
 	}, nil
 }
 

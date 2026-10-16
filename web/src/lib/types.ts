@@ -49,6 +49,44 @@ export interface OrderPage {
   page_size: number;
 }
 
+/** 单个状态的聚合统计，对应统计接口 by_status 的元素。 */
+export interface StatusStat {
+  status: OrderStatus;
+  /** 该状态的订单数。 */
+  count: number;
+  /** 该状态的金额合计（分）。 */
+  amount: number;
+}
+
+/** 单日聚合统计，对应统计接口 daily 的元素。 */
+export interface DailyStat {
+  /** 日期，北京时间口径，格式 YYYY-MM-DD。 */
+  date: string;
+  /** 该天的订单数。 */
+  count: number;
+  /** 该天的金额合计（分）。 */
+  amount: number;
+}
+
+/**
+ * 订单统计响应，对应 GET /api/admin/orders/stats（仅运营 / 管理员）。
+ *
+ * by_status 与 daily 都是**定长**序列（5 条 / 14 条），后端已补齐缺项并固定顺序：
+ * by_status 的顺序为 pending → paid → shipped → completed → refunded；
+ * daily 为近 14 个自然日（北京时间）按日期升序、末条是今天，无数据的天补 0。
+ * 图表可以按序直接渲染，不需要前端再做缺项兜底。
+ */
+export interface OrderStats {
+  /** 全量订单数。 */
+  total_orders: number;
+  /** 全量金额合计（分）。 */
+  total_amount: number;
+  /** 按状态分组的统计：五种状态定长、顺序固定。 */
+  by_status: StatusStat[];
+  /** 近 14 天逐日统计：连续定长、按日期升序。 */
+  daily: DailyStat[];
+}
+
 /** 登录请求体，对应 POST /api/login。 */
 export interface LoginRequest {
   username: string;

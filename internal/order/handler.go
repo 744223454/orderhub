@@ -214,6 +214,23 @@ func (h *Handler) ListAllOrders(c *gin.Context) {
 	})
 }
 
+// GetStats 订单统计
+// @Summary 订单统计（全量汇总、按状态分组与近 14 天趋势，仅运营/管理员）
+// @Tags 订单管理
+// @Produce json
+// @Success 200 {object} Stats
+// @Failure 403 {object} map[string]string
+// @Security BearerAuth
+// @Router /admin/orders/stats [get]
+func (h *Handler) GetStats(c *gin.Context) {
+	st, err := h.service.Stats(c.Request.Context())
+	if err != nil {
+		respondOrderError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, st)
+}
+
 // ShipOrder 发货
 // @Summary 发货（paid → shipped，仅运营/管理员）
 // @Tags 订单管理

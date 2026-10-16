@@ -20,6 +20,7 @@ import type {
   MeResponse,
   Order,
   OrderPage,
+  OrderStats,
   OrgDirectory,
   UpdateUserRoleRequest,
   WecomAuthorizeResponse,
@@ -200,6 +201,11 @@ export const api = {
   /** 退款（paid / shipped → refunded，仅运营 / 管理员）。 */
   refundOrder(id: number): Promise<Order> {
     return request<Order>(`/api/admin/orders/${id}/refund`, { method: 'POST' });
+  },
+
+  /** 查询订单统计（仅运营 / 管理员）：全量汇总、按状态分组与近 14 天趋势。 */
+  getOrderStats(): Promise<OrderStats> {
+    return request<OrderStats>('/api/admin/orders/stats');
   },
 
   /**

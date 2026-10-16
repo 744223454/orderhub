@@ -32,12 +32,12 @@ export interface NavItem {
  * 全站统一的导航列表（顺序即渲染顺序）。
  *
  * 统一顺序固定为：
- *   我的订单 → 订单管理 → 用户管理 → 组织架构 → 账号设置
+ *   我的订单 → 订单管理 → 数据看板 → 用户管理 → 组织架构 → 账号设置
  *
  * 各项的可见范围（语义须与 lib/roles.ts 的 isStaff / isAdmin 以及后端
  * RequireRole 保持一致，不能放宽——前端多显示一个入口，用户点进去就是一排 403）：
  *   - 我的订单、账号设置：所有角色可见；
- *   - 订单管理：运营与管理员可见（staff）；
+ *   - 订单管理、数据看板：运营与管理员可见（staff）；
  *   - 用户管理、组织架构：仅管理员可见（admin）。
  */
 export const NAV_ITEMS: NavItem[] = [
@@ -49,6 +49,11 @@ export const NAV_ITEMS: NavItem[] = [
   {
     href: '/admin/orders',
     label: '订单管理',
+    roles: ['ops', 'admin'],
+  },
+  {
+    href: '/admin/dashboard',
+    label: '数据看板',
     roles: ['ops', 'admin'],
   },
   {
